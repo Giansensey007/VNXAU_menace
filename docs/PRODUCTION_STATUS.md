@@ -74,6 +74,7 @@ Negative net at test size is expected (fees + spread); deploy sizing 200–2000 
 |-------|-------|-------------|
 | VNXAU deposit min (BASE/SOL) | 5 VNXAU cumulative | `src/vnx/deposits.py` |
 | ETH USDC deposit min | 20 USDC cumulative | `src/vnx/deposits.py` |
+| ETH→VNX asset | USDC only (never USDT on ETH) | `src/vnx/constants.py` → `VNX_ETH_DEPOSIT_ASSET` |
 | Platform buy/sell min | 0.4 VNXAU | `src/vnx/trading.py`, `src/quotes/vnx.py` |
 | `platform_vnxau_only` | true | treasury + executor |
 | Persistent state | `data_dir()` → `/data` on Railway | in-flight, CCTP/Wormhole queues, tx log, DB |
