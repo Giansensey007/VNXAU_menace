@@ -47,7 +47,9 @@ def _sync_ms(provider: str) -> float:
 
 
 def provider_from_url(url: str) -> str:
-    host = (urlparse(url).hostname or "").lower()
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = (parsed.path or "").lower()
     if "jup.ag" in host or "jupiter" in host:
         return "jupiter"
     if "vnx.li" in host:
@@ -56,10 +58,10 @@ def provider_from_url(url: str) -> str:
         return "kyber"
     if "circle.com" in host or "iris-api" in host:
         return "cctp"
-    if "base" in host or "forno" in host:
-        return "base_rpc"
     if "solana" in host or host.endswith(".solana.com"):
         return "solana_rpc"
+    if "base" in host or "forno" in host or "/base" in path:
+        return "base_rpc"
     if "llamarpc" in host or "publicnode.com" in host or "ankr.com" in host or "1rpc.io" in host:
         return "eth_rpc"
     if "blockscout" in host:

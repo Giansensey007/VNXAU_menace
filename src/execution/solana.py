@@ -20,7 +20,7 @@ from spl.token.instructions import (
 )
 
 from src.config_loader import ChainConfig, is_dry_run
-from src.execution.sol_rpc import call_with_retry, is_jupiter_slippage_error, is_sol_retryable
+from src.execution.sol_rpc import call_with_retry, current_sol_rpc_url, is_jupiter_slippage_error, is_sol_retryable
 from src.quotes.jupiter import JUPITER_API_KEY, JUPITER_QUOTE
 from src.quotes.rate_limit import get_with_retry, post_with_retry
 
@@ -50,17 +50,31 @@ class SolanaExecutor:
     def __init__(self, chain: ChainConfig) -> None:
         self.chain = chain
         self.keypair = load_keypair()
-        self.client = Client(chain.rpc_url)
+        self._preferred_rpc = chain.rpc_url
+        self.client = self._connect_client()
+
+    def _connect_client(self) -> Client:
+        return Client(current_sol_rpc_url(self._preferred_rpc))
+
+    def _refresh_client_if_rotated(self) -> None:
+        want = current_sol_rpc_url(self._preferred_rpc)
+        current = getattr(self.client, "_provider", None)
+        endpoint = getattr(current, "endpoint_uri", None) or getattr(current, "endpoint", None)
+        if endpoint and str(endpoint).rstrip("/") != want.rstrip("/"):
+            logger.info("Solana RPC endpoint changed — reconnecting to %s", want)
+            self.client = self._connect_client()
 
     @property
     def pubkey(self) -> str:
         return str(self.keypair.pubkey())
 
     def balance_lamports(self) -> int:
+        self._refresh_client_if_rotated()
         resp = call_with_retry(lambda: self.client.get_balance(self.keypair.pubkey()), label="get_balance")
         return resp.value or 0
 
     def token_account_balance(self, ata: Pubkey):
+        self._refresh_client_if_rotated()
         return call_with_retry(
             lambda: self.client.get_token_account_balance(ata),
             label="get_token_account_balance",
@@ -119,6 +133,7 @@ class SolanaExecutor:
         return base64.b64decode(swap_tx_b64)
 
     def _send_signed_tx(self, signed: VersionedTransaction) -> str:
+        self._refresh_client_if_rotated()
         if is_dry_run():
             sim = call_with_retry(lambda: self.client.simulate_transaction(signed), label="simulate")
             logger.info("[DRY_RUN] Solana simulate: %s", sim)
@@ -198,6 +213,7 @@ class SolanaExecutor:
         last_exc: Exception | None = None
         for attempt in range(TX_RETRY_MAX):
             try:
+                self._refresh_client_if_rotated()
                 ixs = []
                 to_info = call_with_retry(lambda: self.client.get_account_info(to_pk), label="get_account_info")
                 if to_info.value is not None and to_info.value.owner == TOKEN_PROGRAM_ID:

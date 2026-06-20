@@ -27,6 +27,7 @@ from src.treasury.loops import (
 )
 from src.vnx.bridge import VnxBridge
 from src.vnx.client import VnxClient
+from src.vnx.collision import vnx_error_message
 from src.vnx.deposits import check_deposit_amount, min_deposit_vnxau
 from src.vnx.trading import platform_buy_vnxau
 
@@ -118,16 +119,24 @@ class TreasuryManager:
 
     async def snapshot(self) -> TreasurySnapshot:
         snap = TreasurySnapshot()
-        api_withdrawals: list[PendingVnxWithdraw] = []
+        api_withdrawals: list[PendingVnxWithdraw] | None = None
         async with VnxClient() as vnx:
-            bal = await vnx.account_balance()
-            snap.platform_vnxau = vnx.vnxau_balance(bal)
-            snap.platform_usdc = vnx.usdc_balance(bal)
+            bal = await vnx.account_balance_resilient()
+            err = vnx_error_message(bal)
+            if err:
+                logger.warning("VNX snapshot balance unavailable: %s", err)
+            else:
+                snap.platform_vnxau = vnx.vnxau_balance(bal)
+                snap.platform_usdc = vnx.usdc_balance(bal)
             wd_resp = await vnx.query_withdrawals()
-            if wd_resp:
+            if wd_resp is not None:
+                if api_withdrawals is None:
+                    api_withdrawals = []
                 api_withdrawals.extend(parse_vnx_withdrawals(wd_resp, "VNXAU"))
             tr_resp = await vnx.query_transfers()
-            if tr_resp:
+            if tr_resp is not None:
+                if api_withdrawals is None:
+                    api_withdrawals = []
                 api_withdrawals.extend(parse_vnx_withdrawals(tr_resp, "VNXAU"))
 
         base = BaseExecutor(self.chains["base"])
@@ -160,20 +169,9 @@ class TreasuryManager:
             platform_token=snap.platform_vnxau,
             base_token=snap.base_vnxau,
             sol_token=snap.sol_vnxau,
-            api_withdrawals=api_withdrawals or None,
+            api_withdrawals=api_withdrawals,
         )
-        snap.pending_vnx_withdraws = api_withdrawals + [
-            PendingVnxWithdraw(
-                asset=r.asset,
-                quantity=r.quantity,
-                blockchain=r.blockchain,
-                destination=r.destination,
-                status=r.status,
-                txid=r.txids[0] if r.txids else None,
-                created_at=r.created_at,
-            )
-            for r in self._ledger.pending_vnx_withdraws()
-        ]
+        snap.pending_vnx_withdraws = self._ledger.pending_vnx_withdraws_view()
         snap.in_flight_summary = self._ledger.format_summary()
         return snap
 

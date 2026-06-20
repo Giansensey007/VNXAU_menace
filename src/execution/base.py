@@ -106,9 +106,11 @@ class BaseExecutor:
         return self.account.address
 
     def balance_native(self) -> int:
+        sync_throttle("base_rpc")
         return self.w3.eth.get_balance(self.account.address)
 
     def balance_erc20(self, token: str) -> int:
+        sync_throttle("base_rpc")
         contract = self.w3.eth.contract(address=checksum(token), abi=ERC20_ABI)
         return contract.functions.balanceOf(self.account.address).call()
 
@@ -180,18 +182,6 @@ class BaseExecutor:
                 self.w3 = connect_base_web3(self.chain.rpc_url)
         raise RuntimeError("Base RPC unreachable")
 
-    def approve_if_needed(self, token: str, spender: str, amount: int) -> str | None:
-        contract = self.w3.eth.contract(address=checksum(token), abi=ERC20_ABI)
-        allowance = contract.functions.allowance(self.account.address, checksum(spender)).call()
-        if allowance >= amount:
-            return "already-approved"
-        fn = contract.functions.approve(checksum(spender), amount)
-        tx = fn.build_transaction(self._tx_base(fn))
-        result = self._build_and_send(tx)
-        if not result:
-            return None
-        return result
-
     def swap_exact_input(
         self,
         token_in: str,
@@ -200,7 +190,12 @@ class BaseExecutor:
         amount_out_min: int,
         fee: int = 100,
     ) -> str | None:
-        self.approve_if_needed(token_in, self.router, amount_in)
+        from src.execution.token_approvals import check_allowance
+
+        err = check_allowance(self.w3, self.account.address, token_in, self.router, amount_in)
+        if err:
+            logger.error(err)
+            return None
         router = self.w3.eth.contract(address=self.router, abi=SWAP_ROUTER_ABI)
         params = (
             checksum(token_in),

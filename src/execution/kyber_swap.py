@@ -15,8 +15,43 @@ from src.quotes.kyber import (
     route_params,
     routes_url,
 )
+from src.quotes.sync_throttle import retry_backoff_sec, sync_throttle
 
 logger = logging.getLogger(__name__)
+
+_MAX_KYBER_ATTEMPTS = int(os.getenv("API_RETRY_MAX", "6"))
+
+
+def _is_kyber_retryable(status_code: int, body: str = "") -> bool:
+    if status_code in (429, 502, 503, 504):
+        return True
+    if status_code == 403 and "rate" in body.lower():
+        return True
+    return False
+
+
+def _kyber_request(method: str, url: str, **kwargs: Any) -> httpx.Response | None:
+    import time
+
+    for attempt in range(_MAX_KYBER_ATTEMPTS):
+        sync_throttle("kyber")
+        try:
+            with httpx.Client(timeout=25.0) as client:
+                resp = client.request(method, url, **kwargs)
+            if _is_kyber_retryable(resp.status_code, resp.text):
+                wait = retry_backoff_sec(attempt)
+                logger.warning("Kyber %s HTTP %s — retry in %.1fs", method, resp.status_code, wait)
+                time.sleep(wait)
+                continue
+            return resp
+        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+            if attempt + 1 >= _MAX_KYBER_ATTEMPTS:
+                logger.warning("Kyber %s network error: %s", method, exc)
+                return None
+            wait = retry_backoff_sec(attempt)
+            logger.warning("Kyber %s network error: %s — retry in %.1fs", method, exc, wait)
+            time.sleep(wait)
+    return None
 
 
 class _EvmSwapExecutor(Protocol):
@@ -39,16 +74,22 @@ def fetch_route(
         return None, 0
     url = routes_url(chain)
     params = route_params(token_in, token_out, amount_in)
+    resp = _kyber_request(
+        "GET",
+        url,
+        params=params,
+        headers={**kyber_headers(), "Content-Type": "application/json"},
+    )
+    if resp is None:
+        return None, 0
+    if resp.status_code >= 400:
+        logger.warning("Kyber route HTTP %s: %s", resp.status_code, resp.text[:160])
+        return None, 0
     try:
-        with httpx.Client(timeout=25.0) as client:
-            resp = client.get(url, params=params, headers={**kyber_headers(), "Content-Type": "application/json"})
-            if resp.status_code >= 400:
-                logger.warning("Kyber route HTTP %s: %s", resp.status_code, resp.text[:160])
-                return None, 0
-            summary, amount_out, _ = parse_route_response(resp.json().get("data", {}), amount_in)
-            if not summary or amount_out <= 0:
-                return None, 0
-            return summary, amount_out
+        summary, amount_out, _ = parse_route_response(resp.json().get("data", {}), amount_in)
+        if not summary or amount_out <= 0:
+            return None, 0
+        return summary, amount_out
     except Exception as exc:
         logger.warning("Kyber route fetch failed: %s", exc)
         return None, 0
@@ -72,16 +113,17 @@ def build_swap_tx(
         "recipient": wallet,
         "slippageTolerance": max(1, slippage_bps),
     }
+    resp = _kyber_request("POST", url, json=payload, headers=kyber_headers())
+    if resp is None:
+        return None
+    if resp.status_code >= 400:
+        logger.warning("Kyber build HTTP %s: %s", resp.status_code, resp.text[:160])
+        return None
     try:
-        with httpx.Client(timeout=25.0) as client:
-            resp = client.post(url, json=payload, headers=kyber_headers())
-            if resp.status_code >= 400:
-                logger.warning("Kyber build HTTP %s: %s", resp.status_code, resp.text[:160])
-                return None
-            body = resp.json().get("data") or {}
-            if not body.get("data") or not body.get("routerAddress"):
-                return None
-            return body
+        body = resp.json().get("data") or {}
+        if not body.get("data") or not body.get("routerAddress"):
+            return None
+        return body
     except Exception as exc:
         logger.warning("Kyber build failed: %s", exc)
         return None

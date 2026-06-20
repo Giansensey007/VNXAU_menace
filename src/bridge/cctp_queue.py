@@ -619,12 +619,9 @@ def _recent_sol_signatures(pubkey: str, rpc_url: str, limit: int = 40) -> list[s
 
 
 def _rpc_rate_limited(data: dict[str, Any]) -> bool:
-    err = data.get("error")
-    if not err:
-        return False
-    if isinstance(err, dict) and err.get("code") in (-32005, -32429):
-        return True
-    return "429" in str(err).lower() or "too many requests" in str(err).lower()
+    from src.quotes.rpc_json import is_json_rpc_rate_limited
+
+    return is_json_rpc_rate_limited(data)
 
 
 def _is_sol_cctp_burn(signature: str, rpc_url: str) -> bool | None:

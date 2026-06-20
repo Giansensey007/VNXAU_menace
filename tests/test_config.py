@@ -1,4 +1,4 @@
-from src.config_loader import load_chains, load_tokens
+from src.config_loader import load_bot_config, load_chains, load_tokens
 
 
 def test_load_chains():
@@ -22,3 +22,16 @@ def test_load_tokens():
     assert "solana" in tokens["VNXAU"].chains
     assert "ethereum" in tokens["VNXAU"].chains
     assert tokens["VNXAU"].chains["ethereum"].lower() == "0x6d57b2e05f26c26b549231c866bdd39779e4a488"
+
+
+def test_bot_yaml_min_sizes(monkeypatch):
+    monkeypatch.delenv("MIN_TRADE_VNXAU", raising=False)
+    monkeypatch.delenv("MAX_TRADE_VNXAU", raising=False)
+    cfg = load_bot_config()
+    assert cfg.min_trade_vnxau == 0.4
+    assert cfg.max_trade_vnxau == 5.0
+    assert cfg.probe_sizes[0] == 0.4
+    assert cfg.vnxau_usd_min == 80
+    assert cfg.vnxau_usd_max == 250
+    assert cfg.platform_vnxau_only is True
+    assert cfg.jit_withdraw is True

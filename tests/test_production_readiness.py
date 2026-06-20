@@ -13,6 +13,13 @@ def test_production_targets_loaded():
     assert t["sol_usdc"] == 250
 
 
+def test_route_test_targets_match_min_sizes():
+    t = production_targets("route_test")
+    assert t["platform_vnxau"] == 6
+    assert t["base_usdc"] == 1320
+    assert t["sol_usdc"] == 1320
+
+
 def test_funding_target_gap():
     row = FundingTarget("base_usdc", "Base USDT", 250, 100, "USDT")
     assert row.gap == 150

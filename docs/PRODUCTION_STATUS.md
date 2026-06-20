@@ -1,7 +1,7 @@
 # VNXAU Menace — production status
 
 **Chains:** Base + Ethereum + Solana (no Celo) · **Swaps:** KyberSwap (EVM) + Jupiter (Sol) · **Default:** `DRY_RUN=true`  
-**Last commit:** `d8ea2d1` · **pytest:** 165 passed · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
+**Last commit:** `443c6a3` · **pytest:** 173 passed · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
 
 ## 10-iteration sanity (`run_sanity_10.py`)
 
@@ -18,7 +18,7 @@ Command: `DRY_RUN=true python scripts/run_sanity_10.py` (2026-06-20, post bounds
 | SA-06 bridge dry-run | FAIL‡ | nonce contention on deposit address |
 | SA-07 sim base→sol | PASS | quotes + sim; `sanity=True` with gold band |
 | SA-08 sim sol→base | PASS | same |
-| SA-09 pytest | PASS | **165 passed** |
+| SA-09 pytest | PASS | **173 passed** |
 
 † SA-04 flaky under shared VNX key collision with other Menace bots.  
 ‡ SA-06 passes when deposit address resolves.

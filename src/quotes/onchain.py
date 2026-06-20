@@ -3,6 +3,7 @@ from __future__ import annotations
 from web3 import Web3
 
 from src.config_loader import ChainConfig
+from src.execution.base_rpc import connect_base_web3
 from src.quotes.addresses import checksum
 from src.quotes.sync_throttle import sync_throttle
 from src.quotes.types import ProviderQuote
@@ -70,9 +71,10 @@ def quote_onchain_pools(
 ) -> list[ProviderQuote]:
     if not chain.rpc_url or not chain.quoter_v2:
         return [ProviderQuote("uniswap_v3", amount_in, 0, error="no RPC")]
-    w3 = Web3(Web3.HTTPProvider(chain.rpc_url, request_kwargs={"timeout": 20}))
-    if not w3.is_connected():
-        return [ProviderQuote("uniswap_v3", amount_in, 0, error="RPC unreachable")]
+    try:
+        w3 = connect_base_web3(chain.rpc_url)
+    except ConnectionError as exc:
+        return [ProviderQuote("uniswap_v3", amount_in, 0, error=str(exc)[:200])]
 
     pools_cfg = chain.pools or {}
     results: list[ProviderQuote] = []

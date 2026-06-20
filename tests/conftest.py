@@ -22,3 +22,22 @@ def test_env_keys():
     kp = __import__("solders.keypair", fromlist=["Keypair"]).Keypair()
     os.environ["SOLANA_SECRET_KEY"] = str(kp)
     os.environ.pop("VNX_API_PUBLIC_KEY", None)
+
+
+@pytest.fixture(autouse=True)
+def yaml_bot_config_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep config tests on bot.yaml defaults; local .env must not override."""
+    monkeypatch.delenv("MIN_TRADE_VNXAU", raising=False)
+    monkeypatch.delenv("MAX_TRADE_VNXAU", raising=False)
+    for var in (
+        "MIN_TRADE_VNXAU",
+        "MAX_TRADE_VNXAU",
+        "VNXAU_USD_MIN",
+        "VNXAU_USD_MAX",
+        "VNX_MIN_DEPOSIT_VNXAU_BASE",
+        "VNX_MIN_DEPOSIT_VNXAU_SOL",
+        "VNX_MIN_ORDER_VNXAU",
+        "PLATFORM_VNXAU_ONLY",
+        "JIT_WITHDRAW",
+    ):
+        os.environ.pop(var, None)

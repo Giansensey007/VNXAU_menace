@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
 import httpx
@@ -32,6 +33,16 @@ def _is_retryable_status(code: int, body: str = "") -> bool:
     return False
 
 
+def is_json_rpc_rate_limited(data: dict[str, Any]) -> bool:
+    err = data.get("error")
+    if not err:
+        return False
+    if isinstance(err, dict) and err.get("code") in (-32005, -32429):
+        return True
+    text = str(err).lower()
+    return "429" in text or "too many requests" in text or "rate limit" in text
+
+
 def post_json_rpc_sync(
     rpc_url: str,
     method: str,
@@ -40,45 +51,45 @@ def post_json_rpc_sync(
     provider: str = "solana_rpc",
     timeout: float = 30.0,
 ) -> dict[str, Any]:
-    """Sync Solana/EVM JSON-RPC POST with throttle and retry."""
+    """Sync Solana/EVM JSON-RPC POST with throttle, retry, and Solana endpoint rotation."""
+    from src.execution.sol_rpc import rotate_sol_rpc_url, sol_rpc_candidates
+
+    urls = sol_rpc_candidates(rpc_url) if provider == "solana_rpc" else [rpc_url]
     last: dict[str, Any] = {}
-    for attempt in range(_MAX_ATTEMPTS):
-        sync_throttle(provider)
-        try:
-            resp = httpx.post(
-                rpc_url,
-                json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
-                timeout=timeout,
-            )
-            if _is_retryable_status(resp.status_code, resp.text):
+
+    for url_idx, url in enumerate(urls):
+        for attempt in range(_MAX_ATTEMPTS):
+            sync_throttle(provider)
+            try:
+                resp = httpx.post(
+                    url,
+                    json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params},
+                    timeout=timeout,
+                )
+                if _is_retryable_status(resp.status_code, resp.text):
+                    wait = _rpc_backoff_sec(provider, attempt)
+                    logger.warning("RPC %s HTTP %s — retry in %.1fs", method, resp.status_code, wait)
+                    time.sleep(wait)
+                    continue
+                data = resp.json()
+                last = data
+                if is_json_rpc_rate_limited(data):
+                    wait = _rpc_backoff_sec(provider, attempt)
+                    logger.warning("RPC %s rate limited %s — retry in %.1fs", method, data.get("error"), wait)
+                    time.sleep(wait)
+                    if attempt + 1 >= _MAX_ATTEMPTS:
+                        break
+                    continue
+                return data
+            except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
+                last = {"error": str(exc)}
+                if attempt + 1 >= _MAX_ATTEMPTS:
+                    break
                 wait = _rpc_backoff_sec(provider, attempt)
-                logger.warning("RPC %s HTTP %s — retry in %.1fs", method, resp.status_code, wait)
-                import time
-
+                logger.warning("RPC %s network error: %s — retry in %.1fs", method, exc, wait)
                 time.sleep(wait)
-                continue
-            data = resp.json()
-            if data.get("error"):
-                err = data["error"]
-                code = err.get("code") if isinstance(err, dict) else None
-                if code in (-32005, -32429) or attempt + 1 < _MAX_ATTEMPTS:
-                    if code in (-32005, -32429) or "429" in str(err):
-                        wait = _rpc_backoff_sec(provider, attempt)
-                        logger.warning("RPC %s error %s — retry in %.1fs", method, err, wait)
-                        import time
-
-                        time.sleep(wait)
-                        continue
-            return data
-        except (httpx.TimeoutException, httpx.ConnectError, httpx.ReadError) as exc:
-            last = {"error": str(exc)}
-            if attempt + 1 >= _MAX_ATTEMPTS:
-                raise
-            wait = _rpc_backoff_sec(provider, attempt)
-            logger.warning("RPC %s network error: %s — retry in %.1fs", method, exc, wait)
-            import time
-
-            time.sleep(wait)
+        if url_idx + 1 < len(urls) and provider == "solana_rpc":
+            rotate_sol_rpc_url(rpc_url)
     return last
 
 

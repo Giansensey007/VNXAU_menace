@@ -4,6 +4,11 @@ import os
 
 from src.config_loader import ROOT, load_bot_config, load_bridge_config, load_chains, load_tokens
 from src.scanner.routes import ALL_DIRECTIONS, ALL_ROUTES
+from src.vnx.deposits import min_deposit_vnxau
+from src.vnx.trading import VNXAU_MIN_ORDER
+
+VNXAU_USD_BAND = (80.0, 250.0)
+DEPOSIT_MIN_BASE_SOL = 5.0
 
 
 def sanity_check_config() -> tuple[bool, list[str]]:
@@ -63,6 +68,23 @@ def sanity_check_config() -> tuple[bool, list[str]]:
         issues.append("trade size bounds invalid")
     if cfg.min_trade_vnxau >= cfg.max_trade_vnxau:
         issues.append("min_trade_vnxau must be < max_trade_vnxau")
+    if cfg.min_trade_vnxau < VNXAU_MIN_ORDER:
+        issues.append(
+            f"min_trade_vnxau {cfg.min_trade_vnxau} < platform min order {VNXAU_MIN_ORDER}"
+        )
+    if (cfg.vnxau_usd_min, cfg.vnxau_usd_max) != VNXAU_USD_BAND:
+        issues.append(
+            f"VNXAU/USD band must be {VNXAU_USD_BAND[0]}-{VNXAU_USD_BAND[1]} "
+            f"(got {cfg.vnxau_usd_min}-{cfg.vnxau_usd_max})"
+        )
+    if min_deposit_vnxau("BASE") != DEPOSIT_MIN_BASE_SOL:
+        issues.append(f"BASE VNXAU deposit min must be {DEPOSIT_MIN_BASE_SOL}")
+    if min_deposit_vnxau("SOL") != DEPOSIT_MIN_BASE_SOL:
+        issues.append(f"SOL VNXAU deposit min must be {DEPOSIT_MIN_BASE_SOL}")
+    if not cfg.platform_vnxau_only:
+        issues.append("platform_vnxau_only must be true (withdraw-only treasury)")
+    if not cfg.jit_withdraw:
+        issues.append("jit_withdraw must be true for vnx_to_* withdraw-only routes")
 
     bridge = load_bridge_config()
     if bridge.get("hub", {}).get("accounting_stable") != "USDC":

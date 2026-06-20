@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Force-execute route legs at TEST_VNXAU (default 31) without profit gate.
+Force-execute route legs at TEST_VNXAU (default 5) without profit gate.
 Logs every TX with intent + explorer URL to data/tx_log.jsonl.
 
 Usage:
@@ -26,7 +26,7 @@ from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
 
-from src.vnx.deposits import check_usdc_deposit_amount, min_deposit_usdc
+from src.vnx.deposits import check_usdc_deposit_amount, min_deposit_usdc, min_deposit_vnxau
 from src.bridge.cctp_queue import CctpClaimQueue
 from src.bridge.hub_eth import (
     base_usdc_to_sol_usdc,
@@ -59,11 +59,11 @@ logger = logging.getLogger("route_matrix")
 
 import os
 
-TEST_VNXAU = 0.5
+TEST_VNXAU = 5.0
 _ROUTE_SIZE = TEST_VNXAU  # overridden by --size CLI flag
-PROBE_VNXAU = 0.01  # matches VNX_MIN_DEPOSIT_VNXAU_BASE for Base deposit routes
+PROBE_VNXAU = min_deposit_vnxau("BASE")  # VNX cumulative credit min on BASE/SOL (default 5)
 PROBE_USDC = 0.4  # minimum Sol USDC for DEX probe when balance < 5
-BASE_MIN_VNXAU = 0.01  # VNX platform min cumulative deposit on BASE
+BASE_MIN_VNXAU = min_deposit_vnxau("BASE")
 CCTP_USDC = 5.0
 ETH_MIN_USDC_DEPOSIT = min_deposit_usdc("ETH")  # VNX cumulative credit min on ETH (default 20)
 HUB_USDC = ETH_MIN_USDC_DEPOSIT  # never deposit ETH USDC to VNX below this
@@ -986,6 +986,9 @@ async def step_verify_all() -> bool:
     purged = InFlightLedger("VNXAU").purge_stale_pending()
     if purged:
         _log(f"Purged {purged} stale in-flight record(s) (>48h pending)")
+    test_purged = InFlightLedger("VNXAU").purge_test_artifacts()
+    if test_purged:
+        _log(f"Purged {test_purged} test-artifact in-flight record(s)")
     results: dict[str, bool] = {}
 
     results["cctp_claim"] = await step_cctp_claim()

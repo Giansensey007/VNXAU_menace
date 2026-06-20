@@ -3,9 +3,9 @@
 Rebalance platform + chains before full route test.
 
 Targets (platform-centric treasury):
-  - Platform: >= 32 VNXAU (all inventory) + >= 54 USDC for vnx_to_* buys
-  - Solana:   >= 53 USDC only (no on-chain VNXAU)
-  - Base:     >= 53 USDT only (no on-chain VNXAU)
+  - Platform: >= 6 VNXAU (all inventory) + USDC for vnx_to_* buys
+  - Solana:   hub USDC only (no on-chain VNXAU)
+  - Base:     hub USDC only (no on-chain VNXAU)
   - Ethereum: >= 3 USDC buffer + gas ETH (hub only)
 
 Usage:
@@ -48,10 +48,11 @@ from src.vnx.trading import _round_down, platform_buy_vnxau
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger("rebalance")
 
-TEST_VNXAU = 31.0
-VNXAU_BUFFER = 1.0  # withdraw fee
-USDC_FOR_BUY = 53.0  # ~31 VNXAU + slippage on Jupiter/VNX
-USDT_FOR_BUY = 53.0
+TEST_VNXAU = 5.0
+VNXAU_BUFFER = 1.35  # withdraw fee buffer
+_cfg = load_bot_config()
+USDC_FOR_BUY = round(TEST_VNXAU * _cfg.vnxau_usd_max * 1.05, 0)  # 5 VNXAU @ max sanity rate
+USDT_FOR_BUY = USDC_FOR_BUY
 USDC_NEAR = USDC_FOR_BUY * 0.95  # tolerate ~5% shortfall for sequential routes
 USDT_NEAR = USDT_FOR_BUY * 0.95
 MIN_ETH_USDC = 3.0

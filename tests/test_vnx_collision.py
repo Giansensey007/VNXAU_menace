@@ -17,6 +17,8 @@ from src.vnx.collision import (
     [
         "invalid_request_limit exceeded",
         "Another order in flight",
+        "invalid nonce on request",
+        "nonce already used",
         "insufficient platform VNXAU (100.00 < 200.00)",
         "order rejected: concurrent request",
         "withdraw rejected — busy",

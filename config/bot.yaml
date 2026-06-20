@@ -1,7 +1,7 @@
 bot:
   poll_interval_sec: 60
   min_profit_usd: 5.0
-  min_trade_vnxau: 0.5
+  min_trade_vnxau: 0.4
   max_trade_vnxau: 5.0
   sizing_coarse_step: 0.1
   max_sizing_quotes: 5

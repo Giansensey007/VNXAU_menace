@@ -603,16 +603,35 @@ class InFlightLedger:
         active = self.active()
         if not active:
             lines.append("  (none)")
-        else:
-            for r in active:
+            return "\n".join(lines)
+
+        by_kind: dict[str, list[InFlightRecord]] = {}
+        for r in active:
+            by_kind.setdefault(r.kind, []).append(r)
+
+        vnx_w = by_kind.get(KIND_VNX_WITHDRAW, [])
+        if vnx_w:
+            base_sum = sum(r.quantity for r in vnx_w if r.blockchain == "BASE")
+            sol_sum = sum(r.quantity for r in vnx_w if r.blockchain == "SOL")
+            api_n = sum(1 for r in vnx_w if r.extra.get("source") == "vnx_api")
+            summary = f"  VNX withdraws: {len(vnx_w)} pending"
+            if base_sum:
+                summary += f", BASE={base_sum:.2f}"
+            if sol_sum:
+                summary += f", SOL={sol_sum:.2f}"
+            if api_n:
+                summary += f" ({api_n} from API)"
+            lines.append(summary)
+
+        for kind in (KIND_VNX_WITHDRAW, KIND_VNX_DEPOSIT, KIND_CCTP_BURN, KIND_WORMHOLE_BURN):
+            for r in by_kind.get(kind, []):
                 tx = ", ".join(r.txids) if r.txids else "n/a"
+                dir_note = r.direction or r.destination or "n/a"
+                qty = f"{r.quantity:.4f}" if r.quantity > 0 else "n/a"
                 lines.append(
-                    f"  {r.kind}: {r.quantity:.4f} {r.asset} blockchain={r.blockchain} "
-                    f"dest={r.destination} status={r.status} since={r.created_at[:19]} tx={tx}"
+                    f"  {r.kind}: {qty} {r.asset} chain={r.blockchain} "
+                    f"dir={dir_note} since={r.created_at[:19]} tx={tx}"
                 )
-        api_pending = [r for r in active if r.extra.get("source") == "vnx_api"]
-        if api_pending:
-            lines.append(f"  VNX API pending withdrawals: {len(api_pending)}")
         return "\n".join(lines)
 
 

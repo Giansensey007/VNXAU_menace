@@ -9,8 +9,8 @@ Usage:
 Order:
   1. Platform audit (CHF/USDC/VNXAU)
   2. CHF→USDC conversion (if CHF >= 30 USDC worth)
-  3. Platform VNXAU buy/sell probe (30 VNXAU min)
-  4. Base + Sol swap probes (5 VNXAU)
+  3. Platform VNXAU buy/sell probe (0.4 VNXAU min)
+  4. Base + Sol swap probes (5 VNXAU deposit min)
   5. CCTP round-trip probe ($10 USDC) — optional with --cctp
 """
 from __future__ import annotations
@@ -40,7 +40,7 @@ from src.vnx.trading import platform_buy_vnxau, platform_sell_vnxau
 
 PROBE_VNXAU = 5.0
 CCTP_PROBE_USDC = 10.0
-PLATFORM_PROBE_VNXAU = 30.0
+PLATFORM_PROBE_VNXAU = 0.4
 
 
 def _ok(label: str, detail: str = "") -> None:

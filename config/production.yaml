@@ -11,12 +11,12 @@ production:
   base_native: 0.5
   sol_native: 0.05
 
-# Minimum to run route-test matrix (31 VNXAU quotes + probes)
+# Minimum to run route-test matrix (5 VNXAU quotes + probes; deposit min BASE/SOL)
 route_test:
-  platform_vnxau: 32
-  platform_usdc: 45
-  base_usdc: 45
-  sol_usdc: 45
+  platform_vnxau: 6
+  platform_usdc: 250
+  base_usdc: 1320
+  sol_usdc: 1320
   eth_usdc: 3
   eth_usdt: 5
   eth_native: 0.003

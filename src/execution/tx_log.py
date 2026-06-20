@@ -42,7 +42,7 @@ class _LazyTxLogPath:
 TX_LOG_PATH = _LazyTxLogPath()
 
 EXPLORERS: dict[str, str] = {
-    "base": "https://basescan.io/tx/{tx}",
+    "base": "https://basescan.org/tx/{tx}",
     "ethereum": "https://etherscan.io/tx/{tx}",
     "eth": "https://etherscan.io/tx/{tx}",
     "solana": "https://solscan.io/tx/{tx}",
@@ -84,7 +84,7 @@ def log_tx(
     ok: bool = True,
     extra: dict[str, Any] | None = None,
 ) -> TxRecord:
-    """Append a transaction record to data_dir()/tx_log.jsonl and emit a log line."""
+    """Append a transaction record to tx_log.jsonl under data_dir() and emit a log line."""
     rec = TxRecord(
         intent=intent,
         chain=chain,

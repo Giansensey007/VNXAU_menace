@@ -61,6 +61,22 @@ async def test_bridge_dry_run(bot_cfg):
 
 
 @pytest.mark.asyncio
+async def test_bridge_blocks_sub_min_deposit(bot_cfg):
+    os.environ["DRY_RUN"] = "true"
+    bridge = VnxBridge(bot_cfg)
+    result = await bridge.bridge_vnxau(
+        direction="base_to_solana",
+        quantity=1.0,
+        source_blockchain="BASE",
+        dest_blockchain="SOL",
+        dest_label="sol-hot",
+        deposit_tx_builder=lambda _addr: None,
+    )
+    assert not result.success
+    assert "minimum" in (result.error or "").lower()
+
+
+@pytest.mark.asyncio
 async def test_bridge_withdraw_only_dry_run(bot_cfg):
     os.environ["DRY_RUN"] = "true"
     bridge = VnxBridge(bot_cfg)

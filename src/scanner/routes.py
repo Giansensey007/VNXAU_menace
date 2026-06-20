@@ -8,6 +8,8 @@ from src.config_loader import BotConfig, load_bot_config
 ROUTE_PAIRS: tuple[tuple[str, str], ...] = (
     ("base", "solana"),
     ("solana", "base"),
+    ("ethereum", "solana"),
+    ("solana", "ethereum"),
     ("base", "vnx"),
     ("vnx", "base"),
     ("solana", "vnx"),
@@ -17,6 +19,7 @@ ROUTE_PAIRS: tuple[tuple[str, str], ...] = (
 )
 
 BASE_SOL_DIRECTIONS: tuple[str, ...] = ("base_to_solana", "solana_to_base")
+ETH_SOL_DIRECTIONS: tuple[str, ...] = ("ethereum_to_solana", "solana_to_ethereum")
 VNX_SOL_DIRECTIONS: tuple[str, ...] = ("solana_to_vnx", "vnx_to_solana")
 BASE_VNX_DIRECTIONS: tuple[str, ...] = ("base_to_vnx", "vnx_to_base")
 ETH_VNX_DIRECTIONS: tuple[str, ...] = ("ethereum_to_vnx", "vnx_to_ethereum")
@@ -35,6 +38,8 @@ class RouteSpec:
     def route_group(self) -> str:
         if self.direction in BASE_SOL_DIRECTIONS:
             return "base_sol"
+        if self.direction in ETH_SOL_DIRECTIONS:
+            return "eth_sol"
         if self.direction in VNX_SOL_DIRECTIONS:
             return "vnx_sol"
         if self.direction in ETH_VNX_DIRECTIONS:
@@ -44,11 +49,16 @@ class RouteSpec:
     @property
     def needs_vnxau_bridge(self) -> bool:
         chains = {self.buy_chain, self.sell_chain}
-        return chains == {"base", "solana"} or "vnx" in chains
+        return chains in ({"base", "solana"}, {"ethereum", "solana"}) or "vnx" in chains
 
     @property
     def needs_stable_bridge(self) -> bool:
         return {self.buy_chain, self.sell_chain} == {"base", "solana"}
+
+    @property
+    def needs_cctp_stable(self) -> bool:
+        """USDC rebalance Sol ↔ ETH after eth↔sol VNXAU arb."""
+        return {self.buy_chain, self.sell_chain} == {"ethereum", "solana"}
 
     @property
     def needs_cctp(self) -> bool:
@@ -57,7 +67,12 @@ class RouteSpec:
 
     @property
     def needs_bridge(self) -> bool:
-        return self.needs_vnxau_bridge or self.needs_stable_bridge or self.needs_cctp
+        return (
+            self.needs_vnxau_bridge
+            or self.needs_stable_bridge
+            or self.needs_cctp
+            or self.needs_cctp_stable
+        )
 
     @property
     def needs_vnx_usdc(self) -> bool:
@@ -93,9 +108,10 @@ ALL_ROUTES: tuple[RouteSpec, ...] = tuple(
 
 ALL_DIRECTIONS: tuple[str, ...] = tuple(r.direction for r in ALL_ROUTES)
 
-# Six directed arb legs on Base / Sol / VNX (excludes ETH hub settlement pair).
+# Eight directed arb legs on Base / Sol / VNX (excludes ETH hub settlement pair).
 CORE_ARB_DIRECTIONS: tuple[str, ...] = (
     *BASE_SOL_DIRECTIONS,
+    *ETH_SOL_DIRECTIONS,
     *BASE_VNX_DIRECTIONS,
     *VNX_SOL_DIRECTIONS,
 )
@@ -105,11 +121,13 @@ def active_routes(cfg: BotConfig | None = None) -> tuple[RouteSpec, ...]:
     cfg = cfg or load_bot_config()
     routes: list[RouteSpec] = []
     for r in ALL_ROUTES:
-        if r.route_group == "base_sol":
+        if r.route_group in ("base_sol", "eth_sol"):
             routes.append(r)
         elif r.route_group == "vnx_sol" and cfg.enable_vnx_cctp_routes:
             routes.append(r)
-        elif r.route_group in ("base_vnx", "eth_vnx") and cfg.enable_vnx_arb_routes:
+        elif r.route_group == "base_vnx" and cfg.enable_vnx_arb_routes:
+            routes.append(r)
+        elif r.route_group == "eth_vnx" and cfg.enable_vnx_arb_routes:
             routes.append(r)
     return tuple(routes)
 
@@ -139,6 +157,9 @@ def estimate_fees_usd(buy_chain: str, sell_chain: str, cfg: BotConfig) -> float:
     if chains == {"base", "solana"}:
         fees += cfg.vnx_bridge_fee_usd
         fees += cfg.wormhole_bridge_fee_usd
+    elif chains == {"ethereum", "solana"}:
+        fees += cfg.vnx_bridge_fee_usd
+        fees += cfg.cctp_fee_usd
     elif direction in VNX_SOL_DIRECTIONS:
         fees += cfg.vnx_platform_fee_usd
         fees += cfg.vnx_bridge_fee_usd

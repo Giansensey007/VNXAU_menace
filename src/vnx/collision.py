@@ -7,6 +7,8 @@ from typing import Any
 _COLLISION_MARKERS: tuple[str, ...] = (
     "invalid_nonce",
     "invalid nonce",
+    "nonce already",
+    "duplicate nonce",
     "invalid_request_limit",
     "concurrent",
     "in flight",

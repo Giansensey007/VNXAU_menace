@@ -4,7 +4,7 @@
 
 1. Connect Railway to https://github.com/Giansensey007/VNXAU_menace
 2. Root directory: repo root (Dockerfile at root)
-3. Mount **persistent volume** at `/data` (SQLite at `/data/bot.db`)
+3. Mount **persistent volume** at `/data` (SQLite at `/data/bot.db`, `in_flight.jsonl` / queues / `tx_log.jsonl` under `/data`)
 4. Copy all vars from `.env.example` into Railway env
 5. **Start with `DRY_RUN=true`** (Dockerfile and `is_dry_run()` default to true)
 6. Preflight (Railway shell or one-off job):
@@ -14,16 +14,16 @@
    ```
 7. Fund to `config/production.yaml` targets — see `docs/PRODUCTION_STATUS.md`
 8. Re-run `verify-all`; optional live probes:
-   `DRY_RUN=false python scripts/test_probe_trades.py --execute` (0.01 VNXAU / ~$5 legs)
-9. Set `DRY_RUN=false` and run deploy bot: `python -m src.main` (0.5–5 VNXAU sizing)
+   `DRY_RUN=false python scripts/test_probe_trades.py --execute` (5 VNXAU / hub USDC legs)
+9. Set `DRY_RUN=false` and run deploy bot: `python -m src.main` (0.4–5 VNXAU sizing)
 
 ## Deploy vs test
 
 | Entry | Purpose | Sizes |
 |-------|---------|-------|
-| `python -m src.main` | **Deploy** — poll, dynamic sizing, min profit | 0.5–5 VNXAU |
-| `python scripts/test_probe_trades.py` | **Test** — tiny swaps, loss OK | 0.01 VNXAU / ~$5 USDC |
-| `python scripts/execute_route_matrix.py --step verify-all` | **Preflight** — claims, sims, funding audit | 0.5 VNXAU quotes |
+| `python -m src.main` | **Deploy** — poll, dynamic sizing, min profit | 0.4–5 VNXAU |
+| `python scripts/test_probe_trades.py` | **Test** — tiny swaps, loss OK | 5 VNXAU / hub USDC |
+| `python scripts/execute_route_matrix.py --step verify-all` | **Preflight** — claims, sims, funding audit | 5 VNXAU quotes |
 | `python scripts/rebalance_for_test.py` | **Fund** — move stables for matrix | per `route_test` in production.yaml |
 | `python scripts/convert_platform_xau.py` | **Fund** — CHF→USDC on VNX (min 30 USDC order) | optional |
 
@@ -42,14 +42,14 @@
 | `VNX_ETH_WITHDRAW_LABEL` | Whitelisted ETH USDC withdraw label |
 | `ENABLE_VNX_ARB_ROUTES` | `true` — base↔vnx VNXAU (hub USDC path) |
 | `ENABLE_VNX_CCTP_ROUTES` | `true` — SOL↔platform via Circle CCTP |
-| `MIN_TRADE_VNXAU`, `MAX_TRADE_VNXAU` | Deploy sizing: `0.5` / `5` |
+| `MIN_TRADE_VNXAU`, `MAX_TRADE_VNXAU` | Deploy sizing: `0.4` / `5` |
 | `RPC_BASE`, `RPC_SOLANA`, `RPC_ETHEREUM` | Mainnet RPCs — use paid Base/Sol RPC in prod |
 | `USE_KYBER_SWAP` | `true` — KyberSwap aggregator for Base + Ethereum EVM swaps |
 | `KYBER_API_URL` | `https://aggregator-api.kyberswap.com` |
 | `KYBER_CLIENT_ID` | Client id for Kyber rate limits (e.g. `vnxau-menace`) |
 | `BASE_SWAP_ROUTER` | Kyber router on Base (default in `.env.example`) |
 | `SOL_RPC_MIN_INTERVAL_MS` | 800+ on public RPC; lower on Helius/QuickNode |
-| `DB_PATH` | Docker sets `/data/bot.db` — mount volume at `/data` |
+| `DB_PATH` | Docker sets `/data/bot.db` — mount volume at `/data`; queues + logs live in parent dir |
 | `VNX_COLLISION_RETRY_MAX` | Shared VNX account with GBP/VCHF — default `3` |
 | `VNX_COLLISION_BACKOFF_SEC` | Backoff between collision retries — default `5` |
 
@@ -57,7 +57,7 @@
 
 | Guard | Value | Where |
 |-------|-------|-------|
-| BASE/SOL VNXAU deposit credit | 0.01 oz cumulative (env) | `VNX_MIN_DEPOSIT_VNXAU_*` |
+| BASE/SOL VNXAU deposit credit | 5 VNXAU cumulative | `VNX_MIN_DEPOSIT_VNXAU_*` |
 | ETH USDC deposit credit | 20 USDC cumulative | `VNX_MIN_DEPOSIT_USDC_ETH` |
 | Platform buy/sell order | 0.4 VNXAU | `src/vnx/trading.py` |
 

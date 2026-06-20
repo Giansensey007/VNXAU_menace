@@ -30,6 +30,15 @@ def test_data_dir_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     assert in_flight_path() == mount / "in_flight.jsonl"
 
 
+def test_tx_log_path_follows_data_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from src.config_loader import data_dir
+    from src.execution.tx_log import tx_log_path
+
+    monkeypatch.setenv("DB_PATH", str(tmp_path / "data" / "bot.db"))
+    monkeypatch.delenv("DATA_DIR", raising=False)
+    assert tx_log_path() == data_dir() / "tx_log.jsonl"
+
+
 def test_sol_rpc_backoff_grows_with_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SOL_RPC_429_BACKOFF_SEC", "8")
     monkeypatch.setenv("API_RETRY_BACKOFF_CAP_SEC", "120")
