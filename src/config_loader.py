@@ -116,6 +116,7 @@ class BotConfig:
     close_loop_min_net_usd: float = 0.0
     jit_withdraw: bool = True
     enable_loop_executor: bool = False
+    enable_loop_pipeline: bool = False
     vnxau_usd_min: float = 80.0
     vnxau_usd_max: float = 250.0
 
@@ -229,6 +230,10 @@ def load_bot_config() -> BotConfig:
         in ("1", "true", "yes"),
         enable_loop_executor=str(
             os.getenv("ENABLE_LOOP_EXECUTOR", raw.get("enable_loop_executor", False))
+        ).lower()
+        in ("1", "true", "yes"),
+        enable_loop_pipeline=str(
+            os.getenv("ENABLE_LOOP_PIPELINE", raw.get("enable_loop_pipeline", False))
         ).lower()
         in ("1", "true", "yes"),
     )
