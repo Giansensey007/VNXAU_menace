@@ -2,12 +2,32 @@
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 import pytest
 
 from src.execution import sol_rpc
 from src.quotes import sync_throttle
+
+
+def test_data_dir_follows_db_path(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from src.config_loader import data_dir, db_path
+
+    db = tmp_path / "persist" / "bot.db"
+    monkeypatch.setenv("DB_PATH", str(db))
+    monkeypatch.delenv("DATA_DIR", raising=False)
+    assert data_dir() == db_path().parent
+    assert data_dir().name == "persist"
+
+
+def test_data_dir_env_override(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from src.config_loader import data_dir
+    from src.treasury.in_flight import in_flight_path
+
+    mount = tmp_path / "data"
+    monkeypatch.setenv("DATA_DIR", str(mount))
+    assert data_dir() == mount
+    assert in_flight_path() == mount / "in_flight.jsonl"
 
 
 def test_sol_rpc_backoff_grows_with_attempt(monkeypatch: pytest.MonkeyPatch) -> None:

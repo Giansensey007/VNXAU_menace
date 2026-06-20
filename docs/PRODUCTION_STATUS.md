@@ -74,9 +74,9 @@ Negative net at test size is expected (fees + spread); deploy sizing 200–2000 
 |-------|-------|-------------|
 | VNXAU deposit min (BASE/SOL) | 5 VNXAU cumulative | `src/vnx/deposits.py` |
 | ETH USDC deposit min | 20 USDC cumulative | `src/vnx/deposits.py` |
-| Platform buy/sell min | 30 VNXAU | `src/vnx/trading.py`, VNX `VNXAU/USDC` |
+| Platform buy/sell min | 0.4 VNXAU | `src/vnx/trading.py`, `src/quotes/vnx.py` |
 | `platform_vnxau_only` | true | treasury + executor |
-| In-flight ledger | `data/in_flight.jsonl` | bridge, CCTP, Wormhole, treasury |
+| Persistent state | `data_dir()` → `/data` on Railway | in-flight, CCTP/Wormhole queues, tx log, DB |
 | VNX collision retry | 3 × 5s backoff | `src/vnx/collision.py`, bridge + trading |
 | VNXAU/USD sanity band | 80–250 USDC/VNXAU | `config/bot.yaml`, `src/quotes/sanity.py` |
 | KyberSwap | `USE_KYBER_SWAP=true` | `src/execution/evm_swap.py` |

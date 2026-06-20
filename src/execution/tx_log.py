@@ -7,11 +7,39 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.config_loader import ROOT
+from src.config_loader import data_dir
 
 logger = logging.getLogger(__name__)
 
-TX_LOG_PATH = ROOT / "data" / "tx_log.jsonl"
+
+def tx_log_path() -> Path:
+    return data_dir() / "tx_log.jsonl"
+
+
+class _LazyTxLogPath:
+    def _path(self) -> Path:
+        return tx_log_path()
+
+    def exists(self) -> bool:
+        return self._path().exists()
+
+    def write_text(self, *a, **k):
+        return self._path().write_text(*a, **k)
+
+    def read_text(self, *a, **k):
+        return self._path().read_text(*a, **k)
+
+    def open(self, *a, **k):
+        return self._path().open(*a, **k)
+
+    def __str__(self) -> str:
+        return str(self._path())
+
+    def __repr__(self) -> str:
+        return repr(self._path())
+
+
+TX_LOG_PATH = _LazyTxLogPath()
 
 EXPLORERS: dict[str, str] = {
     "base": "https://basescan.io/tx/{tx}",
@@ -56,7 +84,7 @@ def log_tx(
     ok: bool = True,
     extra: dict[str, Any] | None = None,
 ) -> TxRecord:
-    """Append a transaction record to data/tx_log.jsonl and emit a log line."""
+    """Append a transaction record to data_dir()/tx_log.jsonl and emit a log line."""
     rec = TxRecord(
         intent=intent,
         chain=chain,
@@ -64,9 +92,10 @@ def log_tx(
         ok=ok,
         extra=extra or {},
     )
-    TX_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    path = tx_log_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(asdict(rec), ensure_ascii=False)
-    with TX_LOG_PATH.open("a", encoding="utf-8") as f:
+    with path.open("a", encoding="utf-8") as f:
         f.write(line + "\n")
     status = "OK" if ok else "FAIL"
     url_part = f" {rec.url}" if rec.url else ""
