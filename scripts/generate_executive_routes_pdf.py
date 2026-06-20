@@ -19,352 +19,252 @@ DOCS = ROOT / "docs"
 sys.path.insert(0, str(ROOT))
 
 from src.config_loader import load_bot_config
-from src.scanner.routes import ALL_DIRECTIONS, active_directions, route_for_direction
+from src.scanner.routes import ALL_DIRECTIONS, active_directions
 from src.vnx.deposits import min_deposit_usdc, min_deposit_vnxau
 from src.vnx.trading import vnxau_min_order
 
-# (row_label, steps[(kind, text)], recon_text or None)
-# kind: hub | act | vnx | recon
-ROUTE_FLOWS: dict[str, tuple[str, list[tuple[str, str]], str | None]] = {
+PDF_STEM = "vnxau-menace-routes-executive"
+ETH_CONTRACT = "0x6d57B2E05F26C26b549231c866bdd39779e4a488"
+
+# label, nodes: (style, line1, line2, dex_tag)
+ROUTE_FLOWS: dict[str, tuple[str, list[tuple[str, str, str, str | None]]]] = {
     "base_to_solana": (
         "base$\\rightarrow$sol",
         [
-            ("hub", "Base\\\\USDC"),
-            ("act", "Kyber\\\\USDC$\\rightarrow$VNXAU"),
-            ("vnx", "VNX\\\\bridge"),
-            ("act", "Jupiter\\\\VNXAU$\\rightarrow$USDC"),
-            ("hub", "Sol\\\\USDC"),
+            ("hub_base", "Base", "USDC", None),
+            ("act", "Kyber", "USDC$\\rightarrow$VNXAU", "Kyber"),
+            ("hub_vnx", "VNX", "bridge", "VNX"),
+            ("act", "Jupiter", "VNXAU$\\rightarrow$USDC", "Jupiter"),
+            ("hub_sol", "Sol", "USDC", None),
+            ("recon", "Wormhole", "USDC", "WH"),
         ],
-        "Wormhole\\\\USDC\\\\Base$\\leftrightarrow$Sol",
     ),
     "solana_to_base": (
         "sol$\\rightarrow$base",
         [
-            ("hub", "Sol\\\\USDC"),
-            ("act", "Jupiter\\\\USDC$\\rightarrow$VNXAU"),
-            ("vnx", "VNX\\\\bridge"),
-            ("act", "Kyber\\\\VNXAU$\\rightarrow$USDC"),
-            ("hub", "Base\\\\USDC"),
+            ("hub_sol", "Sol", "USDC", None),
+            ("act", "Jupiter", "USDC$\\rightarrow$VNXAU", "Jupiter"),
+            ("hub_vnx", "VNX", "bridge", "VNX"),
+            ("act", "Kyber", "VNXAU$\\rightarrow$USDC", "Kyber"),
+            ("hub_base", "Base", "USDC", None),
+            ("recon", "Wormhole", "USDC", "WH"),
         ],
-        "Wormhole\\\\USDC\\\\Sol$\\leftrightarrow$Base",
     ),
     "base_to_vnx": (
         "base$\\rightarrow$vnx",
         [
-            ("hub", "Base\\\\USDC"),
-            ("act", "Kyber\\\\USDC$\\rightarrow$VNXAU"),
-            ("vnx", "VNX\\\\deposit"),
-            ("vnx", "Platform\\\\sell"),
-            ("hub", "VNX\\\\USDC"),
+            ("hub_base", "Base", "USDC", None),
+            ("act", "Kyber", "USDC$\\rightarrow$VNXAU", "Kyber"),
+            ("hub_vnx", "VNX", "deposit", "VNX"),
+            ("act", "Platform", "sell VNXAU", "VNX"),
+            ("hub_vnx", "VNX", "USDC", None),
         ],
-        None,
     ),
     "vnx_to_base": (
         "vnx$\\rightarrow$base",
         [
-            ("hub", "VNX\\\\USDC"),
-            ("vnx", "Platform\\\\buy"),
-            ("vnx", "Withdraw\\\\BASE"),
-            ("act", "Kyber\\\\VNXAU$\\rightarrow$USDC"),
-            ("hub", "Base\\\\USDC"),
+            ("hub_vnx", "VNX", "USDC", None),
+            ("act", "Platform", "buy VNXAU", "VNX"),
+            ("hub_vnx", "VNX", "withdraw", "VNX"),
+            ("act", "Kyber", "VNXAU$\\rightarrow$USDC", "Kyber"),
+            ("hub_base", "Base", "USDC", None),
         ],
-        None,
     ),
     "ethereum_to_vnx": (
         "eth$\\rightarrow$vnx",
         [
-            ("hub", "ETH\\\\USDC"),
-            ("act", "Kyber\\\\USDC$\\rightarrow$VNXAU"),
-            ("vnx", "VNX\\\\deposit"),
-            ("vnx", "Platform\\\\sell"),
-            ("hub", "VNX\\\\USDC"),
+            ("hub_eth", "ETH", "USDC", None),
+            ("act", "Kyber", "USDC$\\rightarrow$VNXAU", "Kyber"),
+            ("hub_vnx", "VNX", "deposit", "VNX"),
+            ("act", "Platform", "sell VNXAU", "VNX"),
+            ("hub_vnx", "VNX", "USDC", None),
         ],
-        None,
     ),
     "vnx_to_ethereum": (
         "vnx$\\rightarrow$eth",
         [
-            ("hub", "VNX\\\\USDC"),
-            ("vnx", "Platform\\\\buy"),
-            ("vnx", "Withdraw\\\\ETH"),
-            ("act", "Kyber\\\\VNXAU$\\rightarrow$USDC"),
-            ("hub", "ETH\\\\USDC"),
+            ("hub_vnx", "VNX", "USDC", None),
+            ("act", "Platform", "buy VNXAU", "VNX"),
+            ("hub_vnx", "VNX", "withdraw", "VNX"),
+            ("act", "Kyber", "VNXAU$\\rightarrow$USDC", "Kyber"),
+            ("hub_eth", "ETH", "USDC", None),
         ],
-        None,
     ),
     "solana_to_vnx": (
         "sol$\\rightarrow$vnx",
         [
-            ("hub", "Sol\\\\USDC"),
-            ("act", "Jupiter\\\\USDC$\\rightarrow$VNXAU"),
-            ("vnx", "VNX\\\\deposit"),
-            ("vnx", "Platform\\\\sell"),
-            ("hub", "VNX\\\\USDC"),
+            ("hub_sol", "Sol", "USDC", None),
+            ("act", "Jupiter", "USDC$\\rightarrow$VNXAU", "Jupiter"),
+            ("hub_vnx", "VNX", "deposit", "VNX"),
+            ("act", "Platform", "sell VNXAU", "VNX"),
+            ("hub_vnx", "VNX", "USDC", None),
+            ("recon", "CCTP", "return", "CCTP"),
         ],
-        "CCTP\\\\reconcile\\\\on return",
     ),
     "vnx_to_solana": (
         "vnx$\\rightarrow$sol",
         [
-            ("hub", "VNX\\\\USDC"),
-            ("vnx", "Platform\\\\buy"),
-            ("vnx", "Withdraw\\\\SOL"),
-            ("act", "Jupiter\\\\VNXAU$\\rightarrow$USDC"),
-            ("hub", "Sol\\\\USDC"),
+            ("hub_vnx", "VNX", "USDC", None),
+            ("act", "Platform", "buy VNXAU", "VNX"),
+            ("hub_vnx", "VNX", "withdraw", "VNX"),
+            ("act", "Jupiter", "VNXAU$\\rightarrow$USDC", "Jupiter"),
+            ("hub_sol", "Sol", "USDC", None),
+            ("recon", "CCTP", "Sol$\\rightarrow$ETH", "CCTP"),
         ],
-        "CCTP\\\\USDC\\\\Sol$\\rightarrow$ETH$\\rightarrow$VNX",
     ),
 }
 
-GROUPS: list[tuple[str, str, tuple[str, ...]]] = [
-    ("base\\_sol", "Base $\\leftrightarrow$ Solana (always on)", ("base_to_solana", "solana_to_base")),
-    ("base\\_vnx", "Base $\\leftrightarrow$ VNX platform", ("base_to_vnx", "vnx_to_base")),
-    ("eth\\_vnx", "Ethereum $\\leftrightarrow$ VNX platform", ("ethereum_to_vnx", "vnx_to_ethereum")),
-    ("vnx\\_sol", "Solana $\\leftrightarrow$ VNX (+ CCTP)", ("solana_to_vnx", "vnx_to_solana")),
+GROUPS: list[tuple[str, tuple[str, ...]]] = [
+    ("Base $\\leftrightarrow$ Solana", ("base_to_solana", "solana_to_base")),
+    ("Base $\\leftrightarrow$ VNX platform", ("base_to_vnx", "vnx_to_base")),
+    ("Ethereum $\\leftrightarrow$ VNX platform", ("ethereum_to_vnx", "vnx_to_ethereum")),
+    ("Solana $\\leftrightarrow$ VNX (+ CCTP)", ("solana_to_vnx", "vnx_to_solana")),
 ]
 
-
-def _tikz_route_row(row: int, y: int, direction: str, active: bool) -> list[str]:
-    label, steps, recon = ROUTE_FLOWS[direction]
-    xs = [0, 19, 38, 57, 76, 93]
-    lines: list[str] = []
-    opacity = "" if active else ", opacity=0.45"
-    lines.append(rf"\node[rowlbl] at (-2,{y}) {{{label}}};")
-
-    nodes: list[str] = []
-    for i, (kind, text) in enumerate(steps):
-        x = xs[i]
-        nid = f"n{row}{i}"
-        if kind == "hub":
-            chain = text.split("\\\\")[0].lower()
-            style = {
-                "base": ("basestroke", "basefill"),
-                "sol": ("solstroke", "solfill"),
-                "eth": ("ethstroke", "ethfill"),
-                "vnx": ("vnxstroke", "vnxfill"),
-            }.get(chain, ("ink", "surface"))
-            stroke, fill = style
-            lines.append(
-                rf"\node[hub={stroke}, fill={fill}{opacity}, anchor=west] ({nid}) at ({x},{y}) {{{text}}};"
-            )
-        elif kind == "vnx":
-            lines.append(
-                rf"\node[act=vnxstroke, fill=vnxfill{opacity}, anchor=west] ({nid}) at ({x},{y}) {{{text}}};"
-            )
-        else:
-            chain_hint = "solstroke" if "Jupiter" in text else "basestroke"
-            lines.append(
-                rf"\node[act={chain_hint}{opacity}, anchor=west] ({nid}) at ({x},{y}) {{{text}}};"
-            )
-        nodes.append(nid)
-
-    if recon:
-        rid = f"r{row}"
-        lines.append(
-            rf"\node[recon{opacity}, anchor=west] ({rid}) at ({xs[5]},{y}) {{{recon}}};"
-        )
-        lines.append(
-            rf"\draw[arr{opacity}] ({nodes[0]})--({nodes[1]})--({nodes[2]})--({nodes[3]})--({nodes[4]})--({rid});"
-        )
-    else:
-        lines.append(
-            rf"\draw[arr{opacity}] ({nodes[0]})--({nodes[1]})--({nodes[2]})--({nodes[3]})--({nodes[4]});"
-        )
-    return lines
-
-
-def _build_latex() -> str:
-    cfg = load_bot_config()
-    active = set(active_directions(cfg))
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    n_active = len(active)
-
-    preamble = r"""% !TeX program = lualatex
+STYLES = r"""
+% !TeX program = lualatex
 \documentclass[9pt,a4paper,landscape]{article}
-\usepackage[a4paper,landscape,margin=8mm]{geometry}
+\usepackage[a4paper,landscape,margin=7mm]{geometry}
 \usepackage{fontspec}
 \usepackage{microtype}
 \defaultfontfeatures{Ligatures=TeX}
 \IfFontExistsTF{Inter}{\usepackage[sfdefault,tabular]{inter}}{
   \IfFontExistsTF{Helvetica Neue}{\setmainfont{Helvetica Neue}}{\setmainfont{TeX Gyre Heros}}}
-\IfFontExistsTF{JetBrains Mono}{\setmonofont{JetBrains Mono}[Scale=0.88]}{
-  \setmonofont{Latin Modern Mono}[Scale=0.88]}
 \usepackage{xcolor}
-\usepackage{array}
-\usepackage{adjustbox}
 \usepackage{tikz}
-\usetikzlibrary{arrows.meta,calc,positioning}
+\usetikzlibrary{arrows.meta}
 \pagestyle{empty}
 \setlength{\parindent}{0pt}
 \definecolor{ink}{RGB}{25,35,55}
 \definecolor{surface}{RGB}{245,248,252}
 \definecolor{primary}{RGB}{0,82,155}
-\definecolor{gold}{RGB}{180,130,20}
-\definecolor{basefill}{RGB}{221,235,250}
-\definecolor{basestroke}{RGB}{37,99,168}
+\definecolor{profit}{RGB}{21,122,78}
+\definecolor{profitbg}{RGB}{220,245,230}
+\definecolor{goldfill}{RGB}{255,248,220}
+\definecolor{goldstroke}{RGB}{184,134,11}
+\definecolor{basefill}{RGB}{232,245,233}
+\definecolor{basestroke}{RGB}{46,125,50}
 \definecolor{solfill}{RGB}{234,218,255}
 \definecolor{solstroke}{RGB}{122,43,210}
 \definecolor{ethfill}{RGB}{221,228,250}
 \definecolor{ethstroke}{RGB}{67,85,187}
 \definecolor{vnxfill}{RGB}{224,242,240}
 \definecolor{vnxstroke}{RGB}{0,107,98}
-\definecolor{profit}{RGB}{21,122,78}
-\definecolor{profitbg}{RGB}{220,245,230}
-\definecolor{badgeamber}{RGB}{252,238,186}
-\definecolor{badgeambertext}{RGB}{168,44,0}
-\newcommand{\statlabel}[1]{{\fontsize{6.5}{8}\selectfont\bfseries\textcolor{ink!55}{\MakeUppercase{#1}}}}
-\newcommand{\badge}[3]{\tikz[baseline=(b.base)]{
-  \node[draw=#2!40, fill=#2, rounded corners=1mm, inner xsep=1.8mm, inner ysep=0.6mm] (b)
-    {{\fontsize{7}{8.5}\selectfont\bfseries\textcolor{#3}{\MakeUppercase{#1}}}};}}
+\definecolor{callout}{RGB}{255,243,224}
+\definecolor{calloutstroke}{RGB}{230,126,34}
+\newcommand{\statlabel}[1]{{\fontsize{6}{7.5}\selectfont\bfseries\textcolor{ink!55}{\MakeUppercase{#1}}}}
 \tikzset{
-  hub/.style={draw=#1, thick, rounded corners=2pt, minimum height=7mm, minimum width=13mm,
-    align=center, font=\fontsize{6.5}{7.5}\selectfont\bfseries, inner sep=0pt},
-  hub/.default=ink,
-  act/.style={draw=#1!55, fill=white, rounded corners=2pt, minimum height=7mm, minimum width=12mm,
-    align=center, font=\fontsize{6.2}{7.2}\selectfont, inner sep=0pt},
-  act/.default=ink,
-  recon/.style={draw=primary!55, fill=primary!6, dashed, thick, rounded corners=2pt,
-    minimum width=15mm, minimum height=7mm, align=center,
-    font=\fontsize{6}{7}\selectfont\bfseries, text=primary, inner sep=1pt},
-  rowlbl/.style={anchor=east, font=\fontsize{6.5}{7.5}\selectfont\bfseries, text=ink!65,
-    minimum width=18mm, align=right},
-  arr/.style={-{Stealth[length=1.6mm]}, thick, draw=ink!50},
-  topnode/.style={draw=#1, thick, rounded corners=3pt, minimum height=9mm, minimum width=18mm,
-    align=center, font=\fontsize{7}{8.5}\selectfont\bfseries, inner sep=1pt},
-  toparr/.style={-{Stealth[length=2mm]}, thick, draw=ink!45},
+  hub_base/.style={draw=basestroke,thick,fill=basefill,rounded corners=2pt,minimum height=6.8mm,minimum width=12.5mm,align=center,font=\fontsize{6.2}{7.5}\selectfont\bfseries,inner sep=1pt},
+  hub_sol/.style={draw=solstroke,thick,fill=solfill,rounded corners=2pt,minimum height=6.8mm,minimum width=12.5mm,align=center,font=\fontsize{6.2}{7.5}\selectfont\bfseries,inner sep=1pt},
+  hub_eth/.style={draw=ethstroke,thick,fill=ethfill,rounded corners=2pt,minimum height=6.8mm,minimum width=12.5mm,align=center,font=\fontsize{6.2}{7.5}\selectfont\bfseries,inner sep=1pt},
+  hub_vnx/.style={draw=vnxstroke,thick,fill=vnxfill,rounded corners=2pt,minimum height=6.8mm,minimum width=12.5mm,align=center,font=\fontsize{6.2}{7.5}\selectfont\bfseries,inner sep=1pt},
+  act/.style={draw=goldstroke!60,fill=goldfill!35,rounded corners=2pt,minimum height=6.8mm,minimum width=12mm,align=center,font=\fontsize{6}{7.2}\selectfont,inner sep=1pt},
+  recon/.style={draw=primary!55,fill=primary!8,dashed,thick,rounded corners=2pt,minimum height=6.8mm,minimum width=11mm,align=center,font=\fontsize{5.8}{7}\selectfont\bfseries,text=primary,inner sep=1pt},
+  arr/.style={-{Stealth[length=1.5mm]},thick,draw=ink!45},
+  rowlbl/.style={anchor=east,font=\fontsize{6.2}{7.5}\selectfont\bfseries,text=ink!70,minimum width=15mm,align=right},
+  grp/.style={anchor=west,font=\fontsize{8}{9.5}\selectfont\bfseries,text=primary},
 }
-\begin{document}
-\color{ink}
+\def\FxA{0}\def\FxB{16.5}\def\FxC{32.5}\def\FxD{48.5}\def\FxE{64.5}\def\FxF{80.5}\def\FxG{96.5}
 """
 
-    header = rf"""
-\noindent\begin{{tabular}}{{@{{}}>{{\raggedright\arraybackslash}}p{{0.62\linewidth}}@{{\hspace{{0.02\linewidth}}}}>{{\raggedright\arraybackslash}}p{{0.35\linewidth}}@{{}}}}
-\begin{{minipage}}[t]{{\linewidth}}
-  {{\fontsize{{17}}{{19}}\selectfont\bfseries\color{{primary}} VNXAU Menace --- Executive Route Map}}\\[1pt]
-  {{\fontsize{{9}}{{11}}\selectfont 8 directed arb routes · Base + Ethereum + Solana · VNXAU/USDC}}\\[1pt]
-  {{\fontsize{{7}}{{9}}\selectfont\textcolor{{ink!60}}{{KyberSwap on Base \& ETH · Jupiter on Sol · VNX bridge + CCTP}}}}
-\end{{minipage}}
-&
-\begin{{minipage}}[t]{{\linewidth}}
-  \raggedleft
-  \badge{{{n_active} routes active}}{{profitbg}}{{profit}}\hspace{{1.5mm}}
-  \badge{{platform treasury}}{{badgeamber}}{{badgeambertext}}\\[2pt]
-  {{\fontsize{{7}}{{8.5}}\selectfont\textcolor{{ink!50}}{{{now} · github.com/Giansensey007/VNXAU\_menace}}}}
-\end{{minipage}}\\
-\end{{tabular}}
-\vspace{{1mm}}\noindent\rule{{\linewidth}}{{0.3pt}}\vspace{{1.5mm}}
-"""
 
-    kpi = rf"""
-\noindent\renewcommand{{\arraystretch}}{{1.12}}
-\begin{{tabular}}{{@{{}}>{{\centering\arraybackslash}}p{{0.19\linewidth}}
-  >{{\centering\arraybackslash}}p{{0.19\linewidth}}
-  >{{\centering\arraybackslash}}p{{0.19\linewidth}}
-  >{{\centering\arraybackslash}}p{{0.19\linewidth}}
-  >{{\centering\arraybackslash}}p{{0.19\linewidth}}@{{}}}}
-\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][14mm][c]{{0.9\linewidth}}
-  \statlabel{{Trade size}}\\[1pt]{{\fontsize{{9.5}}{{11}}\selectfont\bfseries {cfg.min_trade_vnxau:.1f}--{cfg.max_trade_vnxau:.0f}}}\\[0pt]
-  {{\fontsize{{6.5}}{{8}}\selectfont\textcolor{{ink!65}}{{VNXAU}}}}
-\end{{minipage}}}} &
-\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][14mm][c]{{0.9\linewidth}}
-  \statlabel{{Min profit}}\\[1pt]{{\fontsize{{9.5}}{{11}}\selectfont\bfseries\textcolor{{profit}}{{$\geq$\${cfg.min_profit_usd:.2f}}}}}\\[0pt]
-  {{\fontsize{{6.5}}{{8}}\selectfont\textcolor{{ink!65}}{{round-trip}}}}
-\end{{minipage}}}} &
-\fcolorbox{{gold!35}}{{badgeamber!30}}{{\begin{{minipage}}[c][14mm][c]{{0.9\linewidth}}
-  \statlabel{{VNXAU contract}}\\[1pt]{{\fontsize{{6.5}}{{8}}\selectfont\ttfamily 0x6d57\ldots e4a488}}\\[0pt]
-  {{\fontsize{{6.5}}{{8}}\selectfont\textcolor{{ink!65}}{{Ethereum mainnet}}}}
-\end{{minipage}}}} &
-\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][14mm][c]{{0.9\linewidth}}
-  \statlabel{{Platform min}}\\[1pt]{{\fontsize{{9.5}}{{11}}\selectfont\bfseries {vnxau_min_order():.1f} VNXAU}}\\[0pt]
-  {{\fontsize{{6.5}}{{8}}\selectfont\textcolor{{ink!65}}{{buy/sell order}}}}
-\end{{minipage}}}} &
-\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][14mm][c]{{0.9\linewidth}}
-  \statlabel{{Deposit min}}\\[1pt]{{\fontsize{{9.5}}{{11}}\selectfont\bfseries {min_deposit_vnxau("BASE"):.0f} VNXAU}}\\[0pt]
-  {{\fontsize{{6.5}}{{8}}\selectfont\textcolor{{ink!65}}{{BASE/SOL · {min_deposit_usdc("ETH"):.0f} USDC ETH}}}}
-\end{{minipage}}}} \\
-\end{{tabular}}
-\vspace{{2mm}}\noindent\rule{{\linewidth}}{{0.3pt}}\vspace{{1.5mm}}
-"""
-
-    topology = r"""
-\noindent\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.62\linewidth}@{\hspace{0.02\linewidth}}>{\raggedright\arraybackslash}p{0.35\linewidth}@{}}
-\begin{minipage}[t]{\linewidth}
-\begin{tikzpicture}[x=1mm,y=-1mm]
-  \node[topnode=basestroke, fill=basefill] (b) at (0,0) {Base\\USDC hub};
-  \node[topnode=solstroke, fill=solfill] (s) at (42,0) {Solana\\USDC hub};
-  \node[topnode=ethstroke, fill=ethfill] (e) at (84,0) {Ethereum\\USDC hub};
-  \node[topnode=vnxstroke, fill=vnxfill] (v) at (126,0) {VNX\\VNXAU treasury};
-  \draw[toparr] (b) -- node[above, font=\fontsize{5.5}{7}\selectfont, text=ink!60] {VNX VNXAU} (s);
-  \draw[toparr] (b) -- node[above, font=\fontsize{5.5}{7}\selectfont, text=ink!60, pos=0.35] {VNX} (v);
-  \draw[toparr] (e) -- node[above, font=\fontsize{5.5}{7}\selectfont, text=ink!60] {VNX} (v);
-  \draw[toparr, dashed] (b) -- node[above, font=\fontsize{5.5}{7}\selectfont, text=ink!50] {Wormhole USDC} (e);
-  \draw[toparr, dashed] (s) -- node[below, font=\fontsize{5.5}{7}\selectfont, text=ink!50] {CCTP USDC} (e);
-\end{tikzpicture}
-\end{minipage}
-&
-\begin{minipage}[t]{\linewidth}
-\noindent\fcolorbox{primary}{surface}{\begin{minipage}[t]{\dimexpr\linewidth-2\fboxsep-2\fboxrule\relax}
-{\fontsize{7.5}{9}\selectfont\bfseries\color{primary} Hub stables \& DEX}\\[2pt]
-{\fontsize{6.5}{8}\selectfont
-\textbf{Base} USDC · \textbf{KyberSwap}\\
-\textbf{Solana} USDC · \textbf{Jupiter}\\
-\textbf{Ethereum} USDC · \textbf{KyberSwap}\\
-\textbf{VNX} USDC · platform API\\
-Idle VNXAU lives on platform only}
-\end{minipage}}
-\end{minipage}\\
-\end{tabular}
-\vspace{2mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1.5mm}
-"""
-
-    body_lines: list[str] = []
-    y = 0
-    group_header_step = 10
-    row_step = 9
-    row_idx = 0
-
-    body_lines.append(r"\noindent\adjustbox{width=\linewidth,center}{%")
-    body_lines.append(r"\begin{tikzpicture}[x=0.82mm,y=-0.82mm]")
-    body_lines.append(r"\useasboundingbox (-21,-2) rectangle (112,92);")
-
-    for _g_idx, (_group_id, group_title, directions) in enumerate(GROUPS):
-        gy = y
-        body_lines.append(
-            rf"\node[anchor=west, font=\fontsize{{8.5}}{{10}}\selectfont\bfseries\color{{primary}}] at (0,{gy}) {{{group_title}}};"
+def _flow_row(row: int, y: int, label: str, nodes: list[tuple], active: bool) -> list[str]:
+    cols = ["A", "B", "C", "D", "E", "F", "G"]
+    lines: list[str] = []
+    opacity = "" if active else ", opacity=0.42"
+    lines.append(rf"\node[rowlbl,text={('primary' if active else 'ink!40')}] at (-2,{y}) {{{label}}};")
+    prev = None
+    for i, (kind, l1, l2, tag) in enumerate(nodes):
+        if i >= len(cols):
+            break
+        nid = f"r{row}_{i}"
+        tag_tex = rf"\\{{\fontsize{{4.8}}{{5.8}}\selectfont\textcolor{{ink!45}}{{{tag}}}}}" if tag else ""
+        lines.append(
+            rf"\node[{kind}{opacity},anchor=west] ({nid}) at (\Fx{cols[i]},{y}) {{{l1}\\{l2}{tag_tex}}};"
         )
-        y += group_header_step
+        if prev:
+            lines.append(rf"\draw[arr{opacity}] ({prev})--({nid});")
+        prev = nid
+    return lines
+
+
+def build_latex() -> str:
+    cfg = load_bot_config()
+    active = set(active_directions(cfg))
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    contract_short = ETH_CONTRACT[:6] + "…" + ETH_CONTRACT[-4:]
+
+    lines = [
+        STYLES,
+        r"\begin{document}",
+        r"\color{ink}",
+        rf"{{\fontsize{{16}}{{18}}\selectfont\bfseries\color{{primary}} VNXAU Menace --- Executive Route Map}}\\[1pt]",
+        rf"{{\fontsize{{9}}{{11}}\selectfont 8 directed VNXAU routes · Base + Ethereum mainnet + Solana · VNXAU/USDC}}\\[1pt]",
+        rf"{{\fontsize{{7}}{{8.5}}\selectfont\textcolor{{ink!55}}{{{now} · KyberSwap Base+ETH · Jupiter Sol · github.com/Giansensey007/VNXAU\_menace}}}}",
+        r"\vspace{1.5mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1.5mm}",
+        r"\noindent\renewcommand{\arraystretch}{1.1}",
+        r"\begin{tabular}{@{}>{\centering\arraybackslash}p{0.19\linewidth}"
+        r">{\centering\arraybackslash}p{0.19\linewidth}"
+        r">{\centering\arraybackslash}p{0.19\linewidth}"
+        r">{\centering\arraybackslash}p{0.19\linewidth}"
+        r">{\centering\arraybackslash}p{0.19\linewidth}@{}}",
+        rf"\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][12mm][c]{{0.9\linewidth}}"
+        rf"\statlabel{{Trade}}{{\fontsize{{9}}{{10.5}}\selectfont\bfseries {cfg.min_trade_vnxau:.1f}--{cfg.max_trade_vnxau:.0f} VNXAU}}"
+        r"\end{minipage}}} &",
+        rf"\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][12mm][c]{{0.9\linewidth}}"
+        rf"\statlabel{{Min profit}}{{\fontsize{{9}}{{10.5}}\selectfont\bfseries\textcolor{{profit}}{{$\geq$\${cfg.min_profit_usd:.2f}}}}}"
+        r"\end{minipage}}} &",
+        rf"\fcolorbox{{goldstroke!35}}{{goldfill!50}}{{\begin{{minipage}}[c][12mm][c]{{0.9\linewidth}}"
+        rf"\statlabel{{ETH VNXAU}}{{\fontsize{{6.5}}{{8}}\selectfont\ttfamily {contract_short}}}"
+        r"\end{minipage}}} &",
+        rf"\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][12mm][c]{{0.9\linewidth}}"
+        rf"\statlabel{{Platform}}{{\fontsize{{9}}{{10.5}}\selectfont\bfseries {vnxau_min_order():.1f} VNXAU}}"
+        r"\end{minipage}}} &",
+        rf"\fcolorbox{{primary!25}}{{surface}}{{\begin{{minipage}}[c][12mm][c]{{0.9\linewidth}}"
+        rf"\statlabel{{Deposit}}{{\fontsize{{9}}{{10.5}}\selectfont\bfseries {min_deposit_vnxau('BASE'):.0f} VNXAU / {min_deposit_usdc('ETH'):.0f} USDC}}"
+        r"\end{minipage}}} \\",
+        r"\end{tabular}",
+        r"\vspace{1.5mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1.5mm}",
+        r"\noindent\begin{tikzpicture}[x=1mm,y=-1mm]",
+        r"\node[hub_base,anchor=west] (tb) at (0,0) {Base\\USDC};",
+        r"\node[hub_sol,anchor=west] (ts) at (36,0) {Sol\\USDC};",
+        r"\node[hub_eth,anchor=west] (te) at (72,0) {ETH\\USDC};",
+        r"\node[hub_vnx,anchor=west] (tv) at (108,0) {VNX\\VNXAU};",
+        r"\draw[arr] (tb)--node[above,font=\fontsize{5}{6}\selectfont]{VNX VNXAU} (ts);",
+        r"\draw[arr] (tb)--node[below,font=\fontsize{5}{6}\selectfont,pos=0.4]{VNX} (tv);",
+        r"\draw[arr] (te)--node[above,font=\fontsize{5}{6}\selectfont]{VNX} (tv);",
+        r"\draw[arr,dashed] (tb)--node[above,font=\fontsize{5}{6}\selectfont]{Wormhole USDC} (te);",
+        r"\draw[arr,dashed] (ts)--node[below,font=\fontsize{5}{6}\selectfont]{CCTP USDC} (te);",
+        r"\end{tikzpicture}",
+        r"\vspace{1mm}",
+        r"\noindent\begin{tikzpicture}[x=1mm,y=-1mm]",
+    ]
+
+    y = 0
+    row_idx = 0
+    for group_title, directions in GROUPS:
+        y += 7
+        lines.append(rf"\node[grp] at (0,{y}) {{{group_title}}};")
+        y += 7
         for direction in directions:
-            body_lines.extend(_tikz_route_row(row_idx, y, direction, direction in active))
+            label, nodes = ROUTE_FLOWS[direction]
+            lines += _flow_row(row_idx, y, label, nodes, direction in active)
             row_idx += 1
-            y += row_step
+            y += 7
 
-    body_lines.append(
-        rf"\node[anchor=west, font=\fontsize{{6}}{{7.5}}\selectfont, text=ink!55, text width=112mm] at (0,{y + 2}) "
-        r"{Each row = one scanned direction. Dashed recon box = post-trade stable rebalance. Greyed rows = flag-disabled.};"
-    )
-    body_lines.append(r"\end{tikzpicture}}")
-
-    footer = r"""
-\vspace{1mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1mm}
-\noindent\begin{tabular}{@{}>{\raggedright\arraybackslash}p{0.62\linewidth}@{\hspace{0.02\linewidth}}>{\raggedright\arraybackslash}p{0.35\linewidth}@{}}
-\begin{minipage}[t]{\linewidth}
-{\fontsize{7}{8.5}\selectfont
-\textbf{Flags:} \texttt{enable\_vnx\_arb\_routes} (base\_vnx + eth\_vnx) ·
-\texttt{enable\_vnx\_cctp\_routes} (vnx\_sol)\\
-\textbf{Return:} \texttt{cctp\_sol\_usdc\_to\_vnx} closes platform $\rightarrow$ sol loops via CCTP}
-\end{minipage}
-&
-\begin{minipage}[t]{\linewidth}
-\raggedleft
-{\fontsize{7}{8.5}\selectfont
-\textbf{Matrix:} \texttt{scripts/execute\_route\_matrix.py}\\
-\textbf{Full map:} \texttt{scripts/generate\_routes\_pdf.py}}
-\end{minipage}\\
-\end{tabular}
-\end{document}
-"""
-
-    return preamble + header + kpi + topology + "\n".join(body_lines) + footer
+    lines += [
+        r"\end{tikzpicture}",
+        r"\vspace{1mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1mm}",
+        r"\noindent\begin{minipage}[t]{0.55\linewidth}{\fontsize{6.8}{8}\selectfont",
+        r"\textbf{Legend:} colored hub = chain stable · gold = swap leg · dashed = rebalance · ",
+        rf"\textbf{{VNX}} bridge/platform · \textbf{{WH}} Wormhole USDC · \textbf{{CCTP}} Sol$\leftrightarrow$ETH · ETH contract \texttt{{{ETH_CONTRACT}}}",
+        r"}\end{minipage}\hfill\begin{minipage}[t]{0.42\linewidth}\raggedleft{\fontsize{6.8}{8}\selectfont",
+        r"\textbf{Flags:} \texttt{enable\_vnx\_arb\_routes} · \texttt{enable\_vnx\_cctp\_routes} · ",
+        r"\textbf{Return:} \texttt{cctp\_sol\_usdc\_to\_vnx}",
+        r"}\end{minipage}",
+        r"\end{document}",
+    ]
+    return "\n".join(lines)
 
 
 def main() -> int:
@@ -373,10 +273,9 @@ def main() -> int:
     args = p.parse_args()
 
     DOCS.mkdir(parents=True, exist_ok=True)
-    tex_path = DOCS / "vnxau-menace-routes-executive.tex"
-    pdf_path = DOCS / "vnxau-menace-routes-executive.pdf"
-    tex = _build_latex()
-    tex_path.write_text(tex, encoding="utf-8")
+    tex_path = DOCS / f"{PDF_STEM}.tex"
+    pdf_path = DOCS / f"{PDF_STEM}.pdf"
+    tex_path.write_text(build_latex(), encoding="utf-8")
     print(f"Wrote {tex_path}")
 
     if args.no_compile:
@@ -390,14 +289,12 @@ def main() -> int:
             capture_output=True,
             text=True,
         )
-    if proc and proc.returncode == 0 and pdf_path.exists():
+    if proc and pdf_path.exists():
         print(f"Wrote {pdf_path} ({pdf_path.stat().st_size:,} bytes)")
-        return 0
+        return 0 if proc.returncode == 0 else 1
 
-    if proc:
-        print(proc.stdout[-3000:] if proc.stdout else "")
-        print(proc.stderr[-1000:] if proc.stderr else "")
-    print("lualatex compile failed", file=sys.stderr)
+    print((proc.stdout if proc else "")[-3000:])
+    print("lualatex failed", file=sys.stderr)
     return 1
 
 
