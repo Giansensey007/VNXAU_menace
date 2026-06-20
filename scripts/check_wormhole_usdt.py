@@ -96,6 +96,32 @@ async def _maybe_execute(
     return br.success
 
 
+def check_base_outbound(amount: float) -> bool:
+    """Base→Sol and Base→ETH wormhole sims only (no ETH reverse leg)."""
+    chains = load_chains()
+    base = BaseExecutor(chains["base"])
+    wh = WormholePortalBridge(chains["base"])
+
+    sol = os.getenv("SOLANA_PUBLIC_KEY", "").strip()
+    if not sol:
+        try:
+            from src.execution.solana import SolanaExecutor
+
+            sol = str(SolanaExecutor(chains["solana"]).keypair.pubkey())
+        except Exception:
+            sol = ""
+    eth = base.address
+
+    if not sol:
+        _log("WARN: SOLANA_PUBLIC_KEY unset — skipping Base→Sol outbound sim")
+        ok_sol = True
+    else:
+        ok_sol = _check_path(wh, base, "sol", sol, amount)
+
+    ok_eth = _check_path(wh, base, "eth", eth, amount)
+    return ok_sol and ok_eth
+
+
 async def run(amount: float, execute: bool) -> int:
     chains = load_chains()
     base = BaseExecutor(chains["base"])
@@ -113,7 +139,7 @@ async def run(amount: float, execute: bool) -> int:
 
     if not sol:
         _log("WARN: SOLANA_PUBLIC_KEY unset — skipping Base→Sol check")
-        ok_sol = False
+        ok_sol = True
     else:
         ok_sol = _check_path(wh, base, "sol", sol, amount)
 

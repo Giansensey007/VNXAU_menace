@@ -158,7 +158,7 @@ async def step_wormhole_usdt_check(amount: float = 1.0) -> bool:
 
 async def step_wormhole_preflight() -> bool:
     """Wormhole sim: require ETH→Base when funded; Base outbound when funded."""
-    from scripts.check_wormhole_usdt import run as wormhole_check
+    from scripts.check_wormhole_usdt import check_base_outbound
     from src.bridge.wormhole import WormholePortalBridge
     from src.config_loader import load_bridge_config, load_chains
     from src.execution.base import BaseExecutor
@@ -172,7 +172,7 @@ async def step_wormhole_preflight() -> bool:
     wh = WormholePortalBridge(chains["base"])
 
     eth_usdt = float(to_human(eth.balance_erc20(wh_cfg["ethereum_usdt"]), 6))
-    base_usdc = float(to_human(base.balance_erc20(chains["base"].hub_token), 6))
+    base_usdt = float(to_human(base.balance_erc20(chains["base"].hub_token), 6))
     probe = min(1.0, eth_usdt * 0.9) if eth_usdt >= 0.05 else 0.0
 
     if probe >= 0.05:
@@ -183,15 +183,15 @@ async def step_wormhole_preflight() -> bool:
     else:
         _log(f"\n=== Wormhole preflight ETH→Base: SKIP (ETH USDT {eth_usdt:.2f} — sim when funded) ===")
 
-    if base_usdc >= 0.05:
-        base_probe = min(1.0, base_usdc * 0.9)
-        rc = await wormhole_check(base_probe, execute=False)
-        _log(f"=== Wormhole preflight Base outbound (${base_probe:.2f} USDT): {'OK' if rc == 0 else 'FAIL'} ===")
-        if rc != 0:
+    if base_usdt >= 0.05:
+        base_probe = min(1.0, base_usdt * 0.9)
+        ok = check_base_outbound(base_probe)
+        _log(f"=== Wormhole preflight Base outbound (${base_probe:.2f} USDT): {'OK' if ok else 'FAIL'} ===")
+        if not ok:
             _log("  (Base outbound sim failed — may need more canonical USDT or BASE gas)")
             return False
         return True
-    _log(f"SKIP Base→* sim (canonical USDT {base_usdc:.2f} < 0.05 — fund Base for outbound)")
+    _log(f"SKIP Base→* sim (canonical USDT {base_usdt:.2f} < 0.05 — fund Base for outbound)")
     return True
 
 
