@@ -80,7 +80,7 @@ Negative net at test size is expected (fees + spread); deploy sizing 200–2000 
 | Persistent state | `data_dir()` → `/data` on Railway | in-flight, CCTP/Wormhole queues, tx log, DB |
 | VNX collision retry | 3 × 5s backoff | `src/vnx/collision.py`, bridge + trading |
 | VNXAU/USD sanity band | 80–250 USDC/VNXAU | `config/bot.yaml`, `src/quotes/sanity.py` |
-| KyberSwap | `USE_KYBER_SWAP=true` | `src/execution/evm_swap.py` |
+| KyberSwap | `USE_KYBER_SWAP=true` on Base + **Ethereum mainnet** | `src/execution/evm_swap.py`, `src/quotes/kyber.py` |
 | Solana RPC throttle | 800 ms | `.env.example` |
 | Docker default | `DRY_RUN=true` | `Dockerfile`, `docker-compose.yml` |
 
@@ -90,6 +90,15 @@ Negative net at test size is expected (fees + spread); deploy sizing 200–2000 
 |-------|-------|
 | Base | `0xac3fe22294beaed9d1fd752323a6d06d12ff3098` |
 | Ethereum | `0x6d57B2E05F26C26b549231c866bdd39779e4a488` |
+
+**KyberSwap ETH mainnet sample** (2026-06-20, `KYBER_EXCLUDED_SOURCES` limit-order filter on):
+
+| Leg | Amount in | Amount out | Implied $/VNXAU | Route DEXs |
+|-----|-----------|------------|-----------------|------------|
+| Buy | 131 USDC | 0.774 VNXAU | ~169 | ekubo-v3, fermi, uniswapv3 |
+| Sell | 1 VNXAU | 7.21 USDC | ~7 (rejected by sanity band) | uniswap-v4, uniswapv3 |
+
+Sell-side thin-pool quotes below `vnxau_usd_min` (80) are dropped in `src/quotes/router.py`.
 | Solana | `9TPL8droGJ7jThsq4momaoz6uhTcvX2SeMqipoPmNa8R` |
 | VNX Platform | `VNXAU` |
 
@@ -118,7 +127,7 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 1. Copy `.env.example` → `.env` (same BASE/SOL keys as GBP; separate VNX keys optional)
 2. Whitelist withdraw labels: `VNX_BASE_WITHDRAW_LABEL`, `VNX_SOL_WITHDRAW_LABEL`, `VNX_ETH_WITHDRAW_LABEL`
 3. Fund per `config/production.yaml`
-4. `DRY_RUN=true python -m pytest tests/ -q` → 165 passed
+4. `DRY_RUN=true python -m pytest tests/ -q` → 214 passed
 5. `DRY_RUN=true python scripts/run_sanity_10.py` → SA-01/02 PASS; SA-04/06 may flake under shared VNX key
 6. `python scripts/execute_route_matrix.py --step verify-all`
 7. Re-run until on-chain probes PASS
@@ -132,7 +141,7 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 | docker-compose + `/data` volume | OK |
 | DEPLOY.md | OK |
 | `.env.example` (RPC_BASE, RPC_ETHEREUM, Kyber) | OK |
-| pytest all pass | OK — 165 (2026-06-20) |
+| pytest all pass | OK — 214 (2026-06-20) |
 | sanity-10 (single run) | **Partial** — 8/10 agents; SA-01/02 PASS; SA-04/06 nonce flake |
 | verify-all critical steps | OK |
 | In-flight + collision guards | OK |
