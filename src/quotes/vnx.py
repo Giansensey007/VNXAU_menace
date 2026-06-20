@@ -15,7 +15,7 @@ VNX_API_BASE = os.getenv("VNX_API_BASE", "https://api.vnx.li/api/v1").rstrip("/"
 VNX_API_PUBLIC_KEY = os.getenv("VNX_API_PUBLIC_KEY", "").strip()
 VNX_QUOTE_CACHE_SEC = float(os.getenv("VNX_QUOTE_CACHE_SEC", "1.0"))
 
-VNX_MIN_ORDER: dict[str, float] = {"VNXAU": 0.4}
+VNX_MIN_ORDER: dict[str, float] = {"VNXAU": 30.0}
 
 _quote_cache: dict[str, dict] | None = None
 _cache_at: float = 0.0
