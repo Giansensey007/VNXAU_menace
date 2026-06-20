@@ -3,6 +3,23 @@
 **Chains:** Base + Ethereum + Solana (no Celo) · **Swaps:** KyberSwap (EVM) + Jupiter (Sol) · **Default:** `DRY_RUN=true`  
 **Routes:** 8 canonical (Base + ETH + Sol via VNX) · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
 
+## Round 5 production sanity (2026-06-20)
+
+| Check | Command | Result |
+|-------|---------|--------|
+| pytest | `DRY_RUN=true python -m pytest tests/ -q` | **223 passed** |
+| deep sanity 10 | `scripts/run_deep_sanity_10.sh` (pytest + audit + verify-all even iters) | **10/10 PASS** |
+| validation matrix | `DRY_RUN=true python scripts/run_validation_matrix.py --iterations 10` | **230/230 PASS** (10 × 23 agents incl. SA-00) |
+| live sanity-10 | `DRY_RUN=true python scripts/run_sanity_10.py --iterations 10` | **10/10 agents × 10 iterations** (100/100) |
+
+**Architecture (round 5):** `platform_vnxau_only=true` · `jit_withdraw=true` · on-chain stable→VNXAU buy blocked in executor/quotes/simulator · PDF flows show platform withdraw → chain sell (Kyber/Jupiter) · wormhole preflight SKIP when Base USDT &lt; 1 · VNXAU `execute_route_matrix` syntax fix (`TEST_VNXAU`).
+
+| Iteration | pytest+audit+verify-all | validation matrix | sanity-10 |
+|-----------|-------------------------|-------------------|-----------|
+| I1–I10 | PASS each | 23/23 PASS each | 10/10 agents PASS each |
+
+Results: `docs/sanity_10iter_round5.tsv`, `validation/iteration-{1..10}/`, `validation/sanity-10/summary.json`
+
 ## Round 3 production sanity (2026-06-20)
 
 | Check | Command | Result |
