@@ -48,13 +48,32 @@
 | ETH USDC deposit min | 20 USDC cumulative | `src/vnx/deposits.py` |
 | Platform buy/sell min | 0.4 VNXAU | `src/vnx/trading.py`, `src/quotes/vnx.py` |
 | `platform_vnxau_only` | true | treasury + executor |
+| In-flight ledger | `data/in_flight.jsonl` | `src/treasury/in_flight.py` |
+| Duplicate withdraw guard | skip if pending to chain | `src/vnx/bridge.py` |
 | VNX collision retry | 3 × 5s backoff | `src/vnx/collision.py` |
+| EVM swaps | KyberSwap aggregator | `USE_KYBER_SWAP`, `RPC_BASE`, `RPC_ETHEREUM` |
 | Docker default | `DRY_RUN=true` | `Dockerfile`, `docker-compose.yml` |
+
+## Railway deploy env (from `.env.example`)
+
+Required beyond wallet/VNX keys:
+
+| Variable | Purpose |
+|----------|---------|
+| `RPC_BASE` | Base mainnet JSON-RPC |
+| `RPC_ETHEREUM` | Ethereum hub RPC (CCTP / wormhole) |
+| `RPC_SOLANA` | Solana RPC (paid recommended) |
+| `USE_KYBER_SWAP=true` | KyberSwap for Base + ETH swaps |
+| `KYBER_API_URL` | Kyber aggregator API |
+| `KYBER_CLIENT_ID` | Rate-limit client id |
+| `BASE_SWAP_ROUTER` | Kyber router on Base |
+
+See `DEPLOY.md` for full checklist.
 
 ## Validation (2026-06-20)
 
 ```bash
-DRY_RUN=true python -m pytest tests/ -q          # 152 passed
+DRY_RUN=true python -m pytest tests/ -q
 DRY_RUN=true python scripts/execute_route_matrix.py --step audit
 DRY_RUN=true python scripts/execute_route_matrix.py --step verify-all
 ```
@@ -66,8 +85,9 @@ DRY_RUN=true python scripts/execute_route_matrix.py --step verify-all
 ## Go-live checklist
 
 1. Copy `.env.example` → `.env` (same BASE/SOL hot wallets as GBP/VCHF)
-2. Whitelist: `VNX_BASE_WITHDRAW_LABEL`, `VNX_SOL_WITHDRAW_LABEL`, `VNX_ETH_WITHDRAW_LABEL`
-3. Fund per `config/production.yaml`
-4. `DRY_RUN=true python -m pytest tests/ -q`
-5. Route matrix audit + verify-all
-6. Set `DRY_RUN=false` only after funding + whitelist confirmed
+2. Set `RPC_BASE`, `RPC_ETHEREUM`, Kyber vars (`USE_KYBER_SWAP`, `KYBER_*`)
+3. Whitelist: `VNX_BASE_WITHDRAW_LABEL`, `VNX_SOL_WITHDRAW_LABEL`, `VNX_ETH_WITHDRAW_LABEL`
+4. Fund per `config/production.yaml`
+5. `DRY_RUN=true python -m pytest tests/ -q`
+6. Route matrix audit + verify-all (audit shows in-flight ledger block)
+7. Set `DRY_RUN=false` only after funding + whitelist confirmed

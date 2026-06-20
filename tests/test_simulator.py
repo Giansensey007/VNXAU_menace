@@ -92,6 +92,35 @@ def _quote(provider: str, amount_in: int, amount_out: int) -> MagicMock:
     return q
 
 
+def test_all_directions_registered():
+    assert len(ALL_DIRECTIONS) == 8
+    for direction in ALL_DIRECTIONS:
+        assert route_for_direction(direction) is not None
+
+
+@pytest.mark.asyncio
+async def test_pnl_fees_deducted(bot_cfg, chains, token):
+    route = RouteSpec("vnx", "solana")
+
+    async def fake_cost(*_a, **_k):
+        return 266.0, 200.0, _quote("vnx", 266_000_000, 200 * 10**18)
+
+    with patch(
+        "src.scanner.simulator._stable_cost_to_buy_vnxau",
+        side_effect=fake_cost,
+    ), patch(
+        "src.scanner.simulator.sell_token_for_stable",
+        new_callable=AsyncMock,
+        return_value=_quote("jupiter", 200 * 10**9, 270_000_000),
+    ):
+        sim = await _simulate_fixed_size_vnx_route(
+            AsyncMock(), chains, token, bot_cfg, route, 200.0
+        )
+
+    assert sim.fees_usd > 0
+    assert sim.net_profit_usd == pytest.approx(270.0 - 266.0 - sim.fees_usd, rel=1e-3)
+
+
 @pytest.mark.asyncio
 async def test_fixed_size_vnx_route_captures_spread(bot_cfg, chains, token):
     route = RouteSpec("vnx", "solana")

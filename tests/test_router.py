@@ -25,6 +25,56 @@ def base_chain():
 
 
 @pytest.mark.asyncio
+async def test_quote_best_kyber_base():
+    from src.config_loader import load_chains
+
+    chain = load_chains()["base"]
+    amount = 1_000_000_000_000_000_000
+    fake = ProviderQuote("kyber", amount, 1_350_000, route_dexs=["UniswapV3"])
+
+    with patch("src.quotes.router.kyber.quote", new=AsyncMock(return_value=fake)), patch(
+        "src.quotes.router.api_sync", new=AsyncMock()
+    ):
+        result = await quote_best(
+            AsyncMock(),
+            chain,
+            "0xac3fe22294beaed9d1fd752323a6d06d12ff3098",
+            chain.hub_token,
+            amount,
+            18,
+            6,
+            "VNXAU",
+        )
+    assert result is not None
+    assert result.provider == "kyber"
+
+
+@pytest.mark.asyncio
+async def test_quote_best_kyber_ethereum():
+    from src.config_loader import load_chains
+
+    chain = load_chains()["ethereum"]
+    amount = 1_000_000_000_000_000_000
+    fake = ProviderQuote("kyber", amount, 1_350_000, route_dexs=["UniswapV3"])
+
+    with patch("src.quotes.router.kyber.quote", new=AsyncMock(return_value=fake)), patch(
+        "src.quotes.router.api_sync", new=AsyncMock()
+    ):
+        result = await quote_best(
+            AsyncMock(),
+            chain,
+            "0x6d57B2E05F26C26b549231c866bdd39779e4a488",
+            chain.hub_token,
+            amount,
+            18,
+            6,
+            "VNXAU",
+        )
+    assert result is not None
+    assert result.provider == "kyber"
+
+
+@pytest.mark.asyncio
 async def test_quote_best_onchain(base_chain):
     amount = 1_000_000
     fake = [ProviderQuote("uniswap_v3", amount, 900_000)]

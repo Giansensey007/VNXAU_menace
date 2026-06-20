@@ -1,22 +1,22 @@
-# Recommended hot-wallet funding for production (aligns with bot.yaml min_trade_vnxau: 0.5).
+# Recommended hot-wallet funding for production (aligns with deploy sizing 200–2000 VNXAU).
 # Use: python scripts/execute_route_matrix.py --step readiness
 production:
-  platform_vnxau: 5
-  platform_usdc: 750
-  base_usdc: 750
-  sol_usdc: 750
+  platform_vnxau: 200
+  platform_usdc: 250
+  base_usdc: 250
+  sol_usdc: 250
   eth_native: 0.015
   eth_usdc: 50
   eth_usdt: 50
-  base_native: 0.01
+  base_native: 0.5
   sol_native: 0.05
 
-# Minimum to run a single 0.5 VNXAU route test (scripts/rebalance_for_test.py)
+# Minimum to run route-test matrix (31 VNXAU quotes + probes)
 route_test:
-  platform_vnxau: 0.5
-  platform_usdc: 70
-  base_usdc: 70
-  sol_usdc: 70
+  platform_vnxau: 32
+  platform_usdc: 45
+  base_usdc: 45
+  sol_usdc: 45
   eth_usdc: 3
   eth_usdt: 5
   eth_native: 0.003

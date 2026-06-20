@@ -8,6 +8,7 @@ from src.vnx.collision import (
     collision_backoff_sec,
     collision_retry_max,
     is_vnx_collision_error,
+    vnx_error_message,
 )
 
 
@@ -45,6 +46,11 @@ def test_collision_env_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert collision_retry_max() == 3
     assert collision_backoff_sec(0) == 5.0
     assert collision_backoff_sec(2) == 15.0
+
+
+def test_vnx_error_message_shape() -> None:
+    assert vnx_error_message({"result": "success"}) is None
+    assert "busy" in (vnx_error_message({"result": "error", "error": {"message": "server busy"}}) or "")
 
 
 def test_collision_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

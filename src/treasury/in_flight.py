@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from src.config_loader import ROOT
+from src.config_loader import data_dir
 
 logger = logging.getLogger(__name__)
 
-IN_FLIGHT_PATH = ROOT / "data" / "in_flight.jsonl"
+
+def in_flight_path() -> Path:
+    return data_dir() / "in_flight.jsonl"
 
 STATUS_PENDING = "pending"
 STATUS_SETTLED = "settled"
@@ -84,6 +86,7 @@ def read_on_chain_token_balances(chains: Any, token: Any) -> tuple[float, float]
     dec = token_decimals(token, "base")
     base_bal = float(to_human(base.balance_erc20(token.chains["base"]), dec))
     sol = SolanaExecutor(chains["solana"])
+    sdec = token_decimals(token, "solana")
     try:
         mint = Pubkey.from_string(token.chains["solana"])
         ata = get_associated_token_address(sol.keypair.pubkey(), mint)
@@ -143,7 +146,7 @@ class InFlightLedger:
 
     def __init__(self, token_asset: str, path: Path | None = None) -> None:
         self.token_asset = token_asset
-        self.path = path or IN_FLIGHT_PATH
+        self.path = path or in_flight_path()
 
     def read_all(self) -> list[InFlightRecord]:
         if not self.path.exists():
@@ -303,11 +306,38 @@ class InFlightLedger:
     def total_pending_to_blockchain(self, blockchain: str) -> float:
         return sum(r.quantity for r in self.pending_for_blockchain(blockchain))
 
-    def mark_settled(self, record_id: str) -> None:
-        self._update_status(record_id, STATUS_SETTLED, settled_at=_now())
-
     def mark_failed(self, record_id: str, reason: str) -> None:
         self._update_status(record_id, STATUS_FAILED, extra_note=reason)
+
+    def purge_stale_pending(self, max_age_hours: float = 48.0) -> int:
+        """Mark pending records older than max_age_hours as failed (ops cleanup)."""
+        from datetime import timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        records = self.read_all()
+        changed = False
+        count = 0
+        for rec in records:
+            if rec.status != STATUS_PENDING:
+                continue
+            try:
+                created = datetime.fromisoformat(rec.created_at.replace("Z", "+00:00"))
+                if created.tzinfo is None:
+                    created = created.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            if created < cutoff:
+                rec.status = STATUS_FAILED
+                rec.extra["note"] = f"stale pending >{max_age_hours:.0f}h"
+                rec.updated_at = _now()
+                changed = True
+                count += 1
+        if changed:
+            self._rewrite(records)
+        return count
+
+    def mark_settled(self, record_id: str) -> None:
+        self._update_status(record_id, STATUS_SETTLED, settled_at=_now())
 
     def _update_status(
         self,
@@ -493,9 +523,10 @@ def format_treasury_balance_line(
     base_t = getattr(snap, f"base_{token_field}", 0.0)
     sol_t = getattr(snap, f"sol_{token_field}", 0.0)
     usdc = getattr(snap, "platform_usdc", 0.0)
+    chf = getattr(snap, "platform_chf", 0.0)
     line = (
-        f"Balances: plat {token_field.upper()}={plat:.2f} USDC={usdc:.2f} | "
-        f"Base {token_field.upper()}={base_t:.4f} USDC={snap.base_usdc:.2f} | "
+        f"Balances: plat {token_field.upper()}={plat:.2f} USDC={usdc:.2f} CHF={chf:.2f} | "
+        f"Base {token_field.upper()}={base_t:.4f} USDT={snap.base_usdc:.2f} | "
         f"Sol {token_field.upper()}={sol_t:.4f} USDC={snap.sol_usdc:.2f}"
     )
     if pending_vnx_withdraws:

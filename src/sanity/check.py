@@ -24,10 +24,10 @@ def sanity_check_config() -> tuple[bool, list[str]]:
             if ck not in vnxau.chains:
                 issues.append(f"VNXAU missing on {ck}")
 
-    if len(ALL_ROUTES) != 6:
-        issues.append(f"expected 6 routes, got {len(ALL_ROUTES)}")
-    if len(ALL_DIRECTIONS) != 6:
-        issues.append(f"expected 6 directions, got {len(ALL_DIRECTIONS)}")
+    if len(ALL_ROUTES) != 8:
+        issues.append(f"expected 8 routes, got {len(ALL_ROUTES)}")
+    if len(ALL_DIRECTIONS) != 8:
+        issues.append(f"expected 8 directions, got {len(ALL_DIRECTIONS)}")
 
     expected = {
         "base_to_solana",
@@ -36,6 +36,8 @@ def sanity_check_config() -> tuple[bool, list[str]]:
         "vnx_to_base",
         "solana_to_vnx",
         "vnx_to_solana",
+        "ethereum_to_vnx",
+        "vnx_to_ethereum",
     }
     if set(ALL_DIRECTIONS) != expected:
         issues.append(f"direction set mismatch: {set(ALL_DIRECTIONS) ^ expected}")
@@ -52,6 +54,8 @@ def sanity_check_config() -> tuple[bool, list[str]]:
             issues.append("vnx routes active unexpectedly")
         if "base_to_vnx" in active or "vnx_to_base" in active:
             issues.append("base↔vnx should stay off unless ENABLE_VNX_ARB_ROUTES")
+        if "ethereum_to_vnx" in active or "vnx_to_ethereum" in active:
+            issues.append("eth↔vnx should stay off unless ENABLE_VNX_ARB_ROUTES")
         if "base_to_solana" not in active or "solana_to_base" not in active:
             issues.append("base↔solana routes must stay active")
 

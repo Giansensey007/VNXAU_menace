@@ -9,11 +9,11 @@ def min_deposit_vnxau(blockchain: str) -> float:
     """Minimum cumulative on-chain VNXAU deposit before VNX credits (BASE/ETH/SOL)."""
     bc = blockchain.strip().upper()
     if bc == "BASE":
-        return float(os.getenv("VNX_MIN_DEPOSIT_VNXAU_BASE", "0.01"))
+        return float(os.getenv("VNX_MIN_DEPOSIT_VNXAU_BASE", "5"))
     if bc in ("ETH", "ETHEREUM"):
-        return float(os.getenv("VNX_MIN_DEPOSIT_VNXAU_ETH", "0.01"))
+        return float(os.getenv("VNX_MIN_DEPOSIT_VNXAU_ETH", "5"))
     if bc == "SOL":
-        return float(os.getenv("VNX_MIN_DEPOSIT_VNXAU_SOL", "0.01"))
+        return float(os.getenv("VNX_MIN_DEPOSIT_VNXAU_SOL", "5"))
     return 0.0
 
 

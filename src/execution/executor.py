@@ -399,6 +399,8 @@ class ArbExecutor:
                 pass
             await asyncio.sleep(self.bot_cfg.vnx_bridge_poll_sec)
         else:
+            from src.treasury.in_flight import InFlightLedger
+
             record.state = CycleState.FAILED
             record.error = (
                 f"timeout waiting for VNXAU on Sol after VNX withdraw — "
@@ -544,6 +546,8 @@ class ArbExecutor:
                 break
             await asyncio.sleep(self.bot_cfg.vnx_bridge_poll_sec)
         else:
+            from src.treasury.in_flight import InFlightLedger
+
             record.state = CycleState.FAILED
             record.error = (
                 f"timeout waiting for VNXAU on Base after VNX withdraw — "
@@ -819,11 +823,13 @@ class ArbExecutor:
                     break
                 await asyncio.sleep(self.bot_cfg.vnx_bridge_poll_sec)
             if not arrived:
+                from src.treasury.in_flight import InFlightLedger
+
                 record.state = CycleState.FAILED
                 record.error = (
-                f"timeout waiting for VNXAU on Base after VNX withdraw — "
-                f"funds may be pending at VNX ({InFlightLedger('VNXAU').format_summary()})"
-            )
+                    f"timeout waiting for VNXAU on Base after VNX withdraw — "
+                    f"funds may be pending at VNX ({InFlightLedger('VNXAU').format_summary()})"
+                )
                 return
             min_usdt = int(sim.stable_out_usd * 0.995 * 10**self.base.hub_decimals)
             tx = self._evm_swap(
@@ -850,8 +856,13 @@ class ArbExecutor:
                     break
                 await asyncio.sleep(self.bot_cfg.vnx_bridge_poll_sec)
             if not arrived:
+                from src.treasury.in_flight import InFlightLedger
+
                 record.state = CycleState.FAILED
-                record.error = "timeout waiting for VNXAU on ETH after VNX withdraw"
+                record.error = (
+                    f"timeout waiting for VNXAU on ETH after VNX withdraw — "
+                    f"funds may be pending at VNX ({InFlightLedger('VNXAU').format_summary()})"
+                )
                 return
             min_usdc = int(sim.stable_out_usd * 0.995 * 10**self.eth.hub_decimals)
             tx = self._evm_swap(
@@ -883,11 +894,13 @@ class ArbExecutor:
                     pass
                 await asyncio.sleep(self.bot_cfg.vnx_bridge_poll_sec)
             if not arrived:
+                from src.treasury.in_flight import InFlightLedger
+
                 record.state = CycleState.FAILED
                 record.error = (
-                f"timeout waiting for VNXAU on Sol after VNX withdraw — "
-                f"funds may be pending at VNX ({InFlightLedger('VNXAU').format_summary()})"
-            )
+                    f"timeout waiting for VNXAU on Sol after VNX withdraw — "
+                    f"funds may be pending at VNX ({InFlightLedger('VNXAU').format_summary()})"
+                )
                 return
             tx = await sol_exec.swap(
                 client,

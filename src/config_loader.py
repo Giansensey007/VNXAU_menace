@@ -222,3 +222,16 @@ def db_path() -> Path:
         p = ROOT / p
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def data_dir() -> Path:
+    """Persistent state directory (parent of DB_PATH, e.g. /data on Railway)."""
+    override = os.getenv("DATA_DIR", "").strip()
+    if override:
+        p = Path(override)
+        if not p.is_absolute():
+            p = ROOT / p
+    else:
+        p = db_path().parent
+    p.mkdir(parents=True, exist_ok=True)
+    return p

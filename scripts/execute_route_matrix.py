@@ -83,14 +83,16 @@ def _log(msg: str) -> None:
 
 
 async def audit() -> None:
+    from src.treasury.in_flight import InFlightLedger
+    from src.treasury.manager import TreasuryManager
+
     chains = load_chains()
     token = load_tokens()["VNXAU"]
-    async with VnxClient() as vnx:
-        bal = await vnx.account_balance()
-        _log(
-            f"Platform: USDC={vnx.usdc_balance(bal):.2f} VNXAU={vnx.vnxau_balance(bal):.2f} "
-            f"CHF={vnx._asset_balance(bal, 'CHF'):.2f}"
-        )
+    bot_cfg = load_bot_config()
+    treasury = TreasuryManager(chains, token, bot_cfg)
+    snap = await treasury.snapshot()
+    _log(treasury.balance_line(snap))
+    _log(InFlightLedger("VNXAU").format_audit_block())
     base = BaseExecutor(chains["base"])
     dec = token_decimals(token, "base")
     from src.bridge.base_usdc import base_usdc_balances
@@ -979,6 +981,11 @@ async def step_simulate_all_routes() -> bool:
 async def step_verify_all() -> bool:
     """Max verification: claims, readiness, bridge sims, DEX probes, route sims."""
     _log("\n========== VERIFY ALL (production preflight) ==========")
+    from src.treasury.in_flight import InFlightLedger
+
+    purged = InFlightLedger("VNXAU").purge_stale_pending()
+    if purged:
+        _log(f"Purged {purged} stale in-flight record(s) (>48h pending)")
     results: dict[str, bool] = {}
 
     results["cctp_claim"] = await step_cctp_claim()
