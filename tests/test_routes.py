@@ -47,16 +47,7 @@ def test_vnx_arb_enabled_by_default():
 
     cfg = load_bot_config()
     active = set(active_directions(cfg))
-    assert active == {
-        "base_to_solana",
-        "solana_to_base",
-        "base_to_vnx",
-        "vnx_to_base",
-        "solana_to_vnx",
-        "vnx_to_solana",
-        "ethereum_to_vnx",
-        "vnx_to_ethereum",
-    }
+    assert active == {"vnx_to_base", "vnx_to_solana", "vnx_to_ethereum"}
 
 
 def test_active_routes_respects_env(monkeypatch):
@@ -70,4 +61,4 @@ def test_active_routes_respects_env(monkeypatch):
     assert "vnx_to_base" not in active
     assert "ethereum_to_vnx" not in active
     assert "vnx_to_ethereum" not in active
-    assert len(active) == 4
+    assert active == {"vnx_to_solana"}

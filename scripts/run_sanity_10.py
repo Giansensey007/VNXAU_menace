@@ -98,6 +98,7 @@ async def agent_sa01() -> AgentResult:
 
 async def agent_sa02() -> AgentResult:
     from src.config_loader import load_bot_config, load_chains, load_tokens, token_decimals
+    from src.platform_policy import on_chain_token_buy_blocked
     from src.quotes.http_client import build_client
     from src.quotes.router import buy_token_with_stable
     from src.quotes.sanity import check_vnxau_usd_rate
@@ -109,6 +110,14 @@ async def agent_sa02() -> AgentResult:
     base = chains["base"]
     usdt = 70.0
     dec = token_decimals(token, "base")
+
+    if on_chain_token_buy_blocked(cfg, "base"):
+        return AgentResult(
+            "SA-02",
+            "onchain-buy-blocked",
+            True,
+            "platform_vnxau_only: Base stable→VNXAU buy correctly blocked",
+        )
 
     async with build_client() as client:
         q = await buy_token_with_stable(client, base, token, "base", from_human(usdt, base.hub_decimals))
@@ -279,17 +288,17 @@ async def _simulate(direction: str, size: float) -> AgentResult:
     if not sane and sim.error is None:
         parts.append(f"sanity_issues={issues}")
 
-    agent_id = "SA-07" if direction == "base_to_solana" else "SA-08"
+    agent_id = "SA-07" if direction == "vnx_to_solana" else "SA-08"
     name = f"live-sim-{direction.replace('_', '-')}"
     return AgentResult(agent_id, name, ok, " | ".join(parts))
 
 
 async def agent_sa07() -> AgentResult:
-    return await _simulate("base_to_solana", 50.0)
+    return await _simulate("vnx_to_solana", 50.0)
 
 
 async def agent_sa08() -> AgentResult:
-    return await _simulate("solana_to_base", 50.0)
+    return await _simulate("vnx_to_base", 50.0)
 
 
 async def agent_sa09() -> AgentResult:

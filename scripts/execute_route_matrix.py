@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 load_dotenv(ROOT / ".env")
 
 from src.vnx.deposits import check_usdc_deposit_amount, min_deposit_usdc, min_deposit_vnxau
+from src.bridge.cctp import CircleCctpBridge
 from src.bridge.cctp_queue import CctpClaimQueue
 from src.bridge.hub_eth import (
     base_usdc_to_sol_usdc,
@@ -184,7 +185,7 @@ async def step_wormhole_preflight() -> bool:
     else:
         _log(f"\n=== Wormhole preflight ETH→Base: SKIP (ETH USDT {eth_usdt:.2f} — sim when funded) ===")
 
-    if base_usdt >= 0.05:
+    if base_usdt >= 1.0:
         base_probe = min(1.0, base_usdt * 0.9)
         ok = check_base_outbound(base_probe)
         _log(f"=== Wormhole preflight Base outbound (${base_probe:.2f} USDT): {'OK' if ok else 'FAIL'} ===")
@@ -192,7 +193,7 @@ async def step_wormhole_preflight() -> bool:
             _log("  (Base outbound sim failed — may need more canonical USDT or BASE gas)")
             return False
         return True
-    _log(f"SKIP Base→* sim (canonical USDT {base_usdt:.2f} < 0.05 — fund Base for outbound)")
+    _log(f"SKIP Base→* sim (canonical USDT {base_usdt:.2f} < 1.0 — fund Base for outbound)")
     return True
 
 
@@ -955,7 +956,8 @@ async def step_platform_probe() -> bool:
 
 
 async def step_simulate_all_routes() -> bool:
-    from src.scanner.routes import ALL_DIRECTIONS, active_directions
+    from src.platform_policy import on_chain_token_buy_blocked
+    from src.scanner.routes import ALL_DIRECTIONS, active_directions, route_for_direction
 
     cfg = load_bot_config()
     chains = load_chains()
@@ -965,6 +967,10 @@ async def step_simulate_all_routes() -> bool:
     _log(f"\n=== Simulate 8 VNXAU routes @ {TEST_VNXAU} VNXAU (quotes only) ===")
     async with build_client() as client:
         for direction in ALL_DIRECTIONS:
+            route = route_for_direction(direction)
+            if route and on_chain_token_buy_blocked(cfg, route.buy_chain):
+                _log(f"  SKIP [blocked] {direction}: platform-only (no on-chain token buy)")
+                continue
             sim = await simulate_direction(client, chains, token, cfg, direction, TEST_VNXAU)
             tag = "act" if direction in active else "off"
             if sim.error:
