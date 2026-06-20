@@ -18,7 +18,7 @@ Repo: https://github.com/Giansensey007/VNXAU_menace
 | `ethereum_to_vnx` | ETH USDC → VNXAU (Kyber) | VNX sell VNXAU | deposit |
 | `vnx_to_ethereum` | VNX buy VNXAU | ETH VNXAU → USDC (Kyber) | withdraw |
 
-Route groups: `base_sol` (always on), `base_vnx` + `eth_vnx` (`ENABLE_VNX_ARB_ROUTES`), `vnx_sol` (`ENABLE_VNX_CCTP_ROUTES`).
+Route groups: `base_sol` (always on), `base_vnx` + **`eth_vnx`** (separate scanner group; `ENABLE_VNX_ARB_ROUTES`), `vnx_sol` (`ENABLE_VNX_CCTP_ROUTES`).
 
 ---
 
