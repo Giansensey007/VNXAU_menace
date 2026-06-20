@@ -3,7 +3,7 @@ from src.quotes.sanity import check_stable_peg, check_vnxau_usd_rate, sanity_che
 from src.scanner.simulator import CycleSimulation
 from src.sanity.check import sanity_check_config, run_full_sanity
 from src.vnx.deposits import min_deposit_vnxau
-from src.vnx.trading import VNXAU_MIN_ORDER
+from src.vnx.trading import vnxau_min_order
 
 
 def test_peg_and_vnxau_rate():
@@ -50,7 +50,7 @@ def test_bot_config_min_sizes(monkeypatch):
     assert cfg.vnxau_usd_max == 250
     assert cfg.platform_vnxau_only is True
     assert cfg.jit_withdraw is True
-    assert VNXAU_MIN_ORDER == 0.4
+    assert vnxau_min_order() == 0.4
     assert min_deposit_vnxau("BASE") == 5.0
     assert min_deposit_vnxau("SOL") == 5.0
 

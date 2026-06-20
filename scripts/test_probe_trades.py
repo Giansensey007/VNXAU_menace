@@ -32,7 +32,7 @@ from src.quotes.router import buy_token_with_stable, sell_token_for_stable
 from src.quotes.types import from_human, to_human
 from src.scanner.simulator import simulate_direction
 from src.vnx.deposits import min_deposit_vnxau
-from src.vnx.trading import VNXAU_MIN_ORDER
+from src.vnx.trading import vnxau_min_order
 
 PROBE_VNXAU = 5.0
 PROBE_STABLE_USD = 5.0
@@ -188,7 +188,7 @@ async def main() -> None:
 
         print(
             f"\n--- Full deposit-bridge route @ {PROBE_VNXAU} VNXAU "
-            f"(deposit min {VNX_DEPOSIT_MIN_VNXAU}; platform order min {VNXAU_MIN_ORDER}) ---"
+            f"(deposit min {VNX_DEPOSIT_MIN_VNXAU}; platform order min {vnxau_min_order()}) ---"
         )
         if PROBE_VNXAU < VNX_DEPOSIT_MIN_VNXAU:
             print(f"  SKIP live bridge: {PROBE_VNXAU} VNXAU < deposit min {VNX_DEPOSIT_MIN_VNXAU}")

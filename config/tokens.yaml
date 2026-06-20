@@ -9,3 +9,14 @@ tokens:
       ethereum: "0x6d57b2e05f26c26b549231c866bdd39779e4a488"
       solana: "9TPL8droGJ7jThsq4momaoz6uhTcvX2SeMqipoPmNa8R"
       vnx: VNXAU
+
+# Hub stables — VNX ETH mainnet accepts USDC only (src/vnx/constants.py)
+stables:
+  USDC:
+    ethereum: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    base: "0x833589fCD6eDb6E08f4c7C32D4F71b54bda02913"
+    solana: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    vnx_eth_deposit: true
+  USDT:
+    ethereum: "0xdAC17F958D2ee523a2206206994597C13D831ec7"  # Wormhole transit only — not VNX deposit
+    vnx_eth_deposit: false

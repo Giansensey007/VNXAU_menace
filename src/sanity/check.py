@@ -5,7 +5,7 @@ import os
 from src.config_loader import ROOT, load_bot_config, load_bridge_config, load_chains, load_tokens
 from src.scanner.routes import ALL_DIRECTIONS, ALL_ROUTES
 from src.vnx.deposits import min_deposit_vnxau
-from src.vnx.trading import VNXAU_MIN_ORDER
+from src.vnx.trading import vnxau_min_order
 
 VNXAU_USD_BAND = (80.0, 250.0)
 DEPOSIT_MIN_BASE_SOL = 5.0
@@ -68,9 +68,10 @@ def sanity_check_config() -> tuple[bool, list[str]]:
         issues.append("trade size bounds invalid")
     if cfg.min_trade_vnxau >= cfg.max_trade_vnxau:
         issues.append("min_trade_vnxau must be < max_trade_vnxau")
-    if cfg.min_trade_vnxau < VNXAU_MIN_ORDER:
+    min_order = vnxau_min_order()
+    if cfg.min_trade_vnxau < min_order:
         issues.append(
-            f"min_trade_vnxau {cfg.min_trade_vnxau} < platform min order {VNXAU_MIN_ORDER}"
+            f"min_trade_vnxau {cfg.min_trade_vnxau} < platform min order {min_order}"
         )
     if (cfg.vnxau_usd_min, cfg.vnxau_usd_max) != VNXAU_USD_BAND:
         issues.append(

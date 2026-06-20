@@ -12,7 +12,7 @@ import os
 import httpx
 
 from src.bridge.hub_eth import eth_usdc_to_vnx
-from src.vnx.deposits import check_usdc_deposit_amount
+from src.vnx.deposits import validate_eth_usdc_vnx_deposit
 from src.bridge.hub_usdt import usdc_raw_for_solana_buy
 from src.bridge.cctp import CircleCctpBridge
 from src.bridge.wormhole import WormholePortalBridge
@@ -165,6 +165,10 @@ class ArbExecutor:
                 await self._exec_base_to_solana(client, record, sim)
             elif direction == "solana_to_base":
                 await self._exec_solana_to_base(client, record, sim)
+            elif direction == "ethereum_to_solana":
+                await self._exec_ethereum_to_solana(client, record, sim)
+            elif direction == "solana_to_ethereum":
+                await self._exec_solana_to_ethereum(client, record, sim)
             elif route and route.buy_chain == "vnx":
                 await self._exec_vnx_to_chain(client, record, sim, route.sell_chain)
             elif route and route.sell_chain == "vnx":
@@ -261,7 +265,7 @@ class ArbExecutor:
 
             eth_usdc = br.amount_usdc * 0.995 if br.amount_usdc else usdc_amount * 0.98
             record.state = CycleState.RECONCILING
-            dep_err = check_usdc_deposit_amount("ETH", eth_usdc)
+            dep_err = validate_eth_usdc_vnx_deposit(eth_usdc)
             if dep_err:
                 logger.error("Aborting CCTP return ETH USDC→VNX deposit: %s", dep_err)
                 record.state = CycleState.FAILED
@@ -571,6 +575,287 @@ class ArbExecutor:
         record.tx_hashes.append(tx2)
         await self._reconcile_stable_usdt(client, record, "solana_to_base", sim.stable_out_usd)
         record.state = CycleState.DONE
+
+    async def _exec_ethereum_to_solana(
+        self, client: httpx.AsyncClient, record: CycleRecord, sim: CycleSimulation
+    ) -> None:
+        if not self.eth:
+            record.state = CycleState.FAILED
+            record.error = "ethereum chain not configured"
+            return
+        eth_exec = EthereumExecutor(self.eth)
+        sol_exec = SolanaExecutor(self.sol)
+        eth_dec = token_decimals(self.token, "ethereum")
+        sol_dec = token_decimals(self.token, "solana")
+        target = record.size_vnxau
+
+        on_chain = float(to_human(eth_exec.balance_erc20(self.token.chains["ethereum"]), eth_dec))
+        if self._may_reuse_on_chain_vnxau() and on_chain >= target * 0.99:
+            vnxau_amt = min(on_chain, target)
+            logger.info("Ethereum already has %.2f VNXAU — skip buy", on_chain)
+        else:
+            vnxau_amt = sim.token_mid if sim.token_mid > 0 else target
+            usdc_in = from_human(sim.stable_in_usd, self.eth.hub_decimals)
+            min_vnxau = int(vnxau_amt * 0.995 * 10**eth_dec)
+            tx1 = self._evm_swap(
+                eth_exec,
+                self.eth,
+                self.eth.hub_token,
+                self.token.chains["ethereum"],
+                usdc_in,
+                min_vnxau,
+            )
+            if not tx1:
+                record.state = CycleState.FAILED
+                record.error = "ethereum buy VNXAU failed"
+                return
+            record.tx_hashes.append(tx1)
+            log_cycle_step(record.id, "eth_buy_vnxau", {"tx": tx1})
+            import time
+
+            for _ in range(20):
+                on_chain = float(to_human(eth_exec.balance_erc20(self.token.chains["ethereum"]), eth_dec))
+                if on_chain >= target * 0.95:
+                    break
+                time.sleep(3)
+            vnxau_amt = min(on_chain, target)
+            if vnxau_amt < target * 0.9:
+                record.state = CycleState.FAILED
+                record.error = f"insufficient ETH VNXAU after buy ({on_chain:.2f} < {target})"
+                return
+
+        record.state = CycleState.BRIDGING
+        bridge = VnxBridge(self.bot_cfg)
+
+        async def deposit_builder(addr: str) -> str | None:
+            return eth_exec.transfer_erc20(
+                self.token.chains["ethereum"], addr, from_human(vnxau_amt, eth_dec)
+            )
+
+        import os
+
+        br = await bridge.bridge_vnxau(
+            direction="ethereum_to_solana",
+            quantity=vnxau_amt,
+            source_blockchain=os.getenv("VNX_ETH_BLOCKCHAIN", "ETH"),
+            dest_blockchain=os.getenv("VNX_SOL_BLOCKCHAIN", "SOL"),
+            dest_label=os.getenv("VNX_SOL_WITHDRAW_LABEL", "sol-hot"),
+            deposit_tx_builder=deposit_builder,
+        )
+        if not br.success:
+            record.state = CycleState.FAILED
+            record.error = br.error or "bridge failed"
+            return
+        if br.deposit_tx:
+            record.tx_hashes.append(br.deposit_tx)
+
+        record.state = CycleState.EXECUTING
+        from spl.token.instructions import get_associated_token_address
+        from solders.pubkey import Pubkey
+
+        vnxau_ata = get_associated_token_address(
+            sol_exec.keypair.pubkey(), Pubkey.from_string(self.token.chains["solana"])
+        )
+        deadline = time.time() + self.bot_cfg.vnx_bridge_timeout_sec
+        needed = from_human(vnxau_amt * 0.99, sol_dec)
+        while time.time() < deadline:
+            try:
+                bal = sol_exec.token_account_balance(vnxau_ata)
+                if int(bal.value.amount) >= needed:
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(self.bot_cfg.vnx_bridge_poll_sec)
+        else:
+            from src.treasury.in_flight import InFlightLedger
+
+            record.state = CycleState.FAILED
+            record.error = (
+                f"timeout waiting for VNXAU on Sol after VNX withdraw — "
+                f"funds may be pending at VNX ({InFlightLedger('VNXAU').format_summary()})"
+            )
+            return
+
+        tx2 = await sol_exec.swap(
+            client,
+            self.token.chains["solana"],
+            self.sol.hub_token,
+            from_human(vnxau_amt, sol_dec),
+            self.bot_cfg.slippage_bps,
+        )
+        if not tx2:
+            record.state = CycleState.FAILED
+            record.error = "solana sell VNXAU failed"
+            return
+        record.tx_hashes.append(tx2)
+        log_cycle_step(record.id, "sol_sell_vnxau", {"tx": tx2})
+        await self._reconcile_cctp_eth_sol(client, record, "ethereum_to_solana", sim.stable_out_usd)
+        record.state = CycleState.DONE
+
+    async def _exec_solana_to_ethereum(
+        self, client: httpx.AsyncClient, record: CycleRecord, sim: CycleSimulation
+    ) -> None:
+        if not self.eth:
+            record.state = CycleState.FAILED
+            record.error = "ethereum chain not configured"
+            return
+        eth_exec = EthereumExecutor(self.eth)
+        sol_exec = SolanaExecutor(self.sol)
+        eth_dec = token_decimals(self.token, "ethereum")
+        sol_dec = token_decimals(self.token, "solana")
+        target = record.size_vnxau
+
+        from spl.token.instructions import get_associated_token_address
+        from solders.pubkey import Pubkey
+
+        vnxau_ata = get_associated_token_address(
+            sol_exec.keypair.pubkey(), Pubkey.from_string(self.token.chains["solana"])
+        )
+        try:
+            on_chain = sol_exec.token_balance_ui(vnxau_ata)
+        except Exception:
+            on_chain = 0.0
+
+        if self._may_reuse_on_chain_vnxau() and on_chain >= target * 0.99:
+            vnxau_amt = min(on_chain, target)
+            logger.info("Solana already has %.2f VNXAU — skip buy", on_chain)
+        else:
+            usdc_raw, _ = await usdc_raw_for_solana_buy(client, sim.stable_in_usd)
+            usdc_in = usdc_raw if usdc_raw is not None else from_human(sim.stable_in_usd, self.sol.hub_decimals)
+            tx1 = await sol_exec.swap(
+                client,
+                self.sol.hub_token,
+                self.token.chains["solana"],
+                usdc_in,
+                self.bot_cfg.slippage_bps,
+            )
+            if not tx1:
+                record.state = CycleState.FAILED
+                record.error = "solana buy VNXAU failed"
+                return
+            record.tx_hashes.append(tx1)
+
+            import time
+
+            for _ in range(30):
+                try:
+                    on_chain = sol_exec.token_balance_ui(vnxau_ata)
+                except Exception:
+                    on_chain = 0.0
+                if on_chain >= target * 0.95:
+                    break
+                time.sleep(SOL_BALANCE_POLL_SEC)
+            vnxau_amt = min(on_chain, target)
+            if vnxau_amt < target * 0.9:
+                record.state = CycleState.FAILED
+                record.error = f"insufficient VNXAU after buy ({on_chain:.2f} < {target})"
+                return
+
+        record.state = CycleState.BRIDGING
+        bridge = VnxBridge(self.bot_cfg)
+
+        async def deposit_builder(addr: str) -> str | None:
+            return sol_exec.transfer_spl(
+                self.token.chains["solana"], addr, from_human(vnxau_amt, sol_dec), sol_dec
+            )
+
+        import os
+
+        br = await bridge.bridge_vnxau(
+            direction="solana_to_ethereum",
+            quantity=vnxau_amt,
+            source_blockchain=os.getenv("VNX_SOL_BLOCKCHAIN", "SOL"),
+            dest_blockchain=os.getenv("VNX_ETH_BLOCKCHAIN", "ETH"),
+            dest_label=os.getenv(
+                "VNX_ETH_VNXAU_WITHDRAW_LABEL",
+                os.getenv("VNX_ETH_WITHDRAW_LABEL", "eth-hot"),
+            ),
+            deposit_tx_builder=deposit_builder,
+        )
+        if not br.success:
+            record.state = CycleState.FAILED
+            record.error = br.error or "bridge failed"
+            return
+        if br.deposit_tx:
+            record.tx_hashes.append(br.deposit_tx)
+
+        deadline = time.time() + self.bot_cfg.vnx_bridge_timeout_sec
+        needed = from_human(vnxau_amt * 0.99, eth_dec)
+        while time.time() < deadline:
+            if eth_exec.balance_erc20(self.token.chains["ethereum"]) >= needed:
+                break
+            await asyncio.sleep(self.bot_cfg.vnx_bridge_poll_sec)
+        else:
+            from src.treasury.in_flight import InFlightLedger
+
+            record.state = CycleState.FAILED
+            record.error = (
+                f"timeout waiting for VNXAU on ETH after VNX withdraw — "
+                f"funds may be pending at VNX ({InFlightLedger('VNXAU').format_summary()})"
+            )
+            return
+
+        min_usdc = int(sim.stable_out_usd * 0.995 * 10**self.eth.hub_decimals)
+        tx2 = self._evm_swap(
+            eth_exec,
+            self.eth,
+            self.token.chains["ethereum"],
+            self.eth.hub_token,
+            from_human(vnxau_amt, eth_dec),
+            min_usdc,
+        )
+        if not tx2:
+            record.state = CycleState.FAILED
+            record.error = "ethereum sell VNXAU failed"
+            return
+        record.tx_hashes.append(tx2)
+        await self._reconcile_cctp_eth_sol(client, record, "solana_to_ethereum", sim.stable_out_usd)
+        record.state = CycleState.DONE
+
+    async def _reconcile_cctp_eth_sol(
+        self,
+        client: httpx.AsyncClient,
+        record: CycleRecord,
+        cycle_direction: str,
+        usdc_amount: float,
+    ) -> None:
+        """Optional CCTP USDC rebalance after eth↔sol VNXAU arb."""
+        if usdc_amount <= 0:
+            return
+        probe_usd = float(os.getenv("CCTP_RECONCILE_USDC", "0") or "0")
+        if probe_usd <= 0:
+            logger.info("CCTP reconcile skipped (CCTP_RECONCILE_USDC=0)")
+            return
+        record.state = CycleState.RECONCILING
+        cctp = CircleCctpBridge()
+        probe = probe_usd if probe_usd > 1 else max(10.0, usdc_amount * 0.01)
+        if cycle_direction == "ethereum_to_solana":
+            br = await cctp.bridge_usdc_eth_to_sol(client, probe)
+        else:
+            br = await cctp.bridge_usdc_sol_to_eth(client, probe)
+        log_cycle_step(
+            record.id,
+            "cctp_usdc",
+            {"cycle": cycle_direction, "bridge": br.direction, "success": br.success, "dry_run": br.dry_run},
+        )
+        if br.source_tx and not br.dest_tx:
+            from src.bridge.cctp_queue import CctpClaimQueue
+
+            cfg_cctp = load_bridge_config()["cctp"]
+            if br.direction == "solana_to_ethereum_usdc":
+                CctpClaimQueue().enqueue(
+                    source_tx=br.source_tx,
+                    source_domain=int(cfg_cctp["solana_domain"]),
+                    dest_domain=int(cfg_cctp["ethereum_domain"]),
+                    intent=cycle_direction,
+                )
+            elif br.direction == "ethereum_to_solana_usdc":
+                CctpClaimQueue().enqueue(
+                    source_tx=br.source_tx,
+                    source_domain=int(cfg_cctp["ethereum_domain"]),
+                    dest_domain=int(cfg_cctp["solana_domain"]),
+                    intent=cycle_direction,
+                )
 
     async def _exec_chain_to_vnx(
         self, client: httpx.AsyncClient, record: CycleRecord, sim: CycleSimulation, chain_key: str

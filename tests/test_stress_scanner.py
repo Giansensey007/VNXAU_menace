@@ -105,12 +105,12 @@ class TestChooseExecution:
         r = choose_execution(cs, vs, cfg)
         assert r.opportunity is vs
 
-    def test_base_vnx_wins_over_base_sol(self):
+    def test_eth_vnx_wins_over_base_sol(self):
         cfg = _cfg()
         cs = _best("base_sol", "base_to_solana", 10)
-        cv = _best("base_vnx", "base_to_vnx", 25)
-        r = choose_execution(cs, None, cfg, base_vnx=cv)
-        assert r.opportunity is cv
+        ev = _best("eth_vnx", "ethereum_to_vnx", 25)
+        r = choose_execution(cs, None, cfg, eth_vnx=ev)
+        assert r.opportunity is ev
 
     def test_base_vnx_loses_to_better_base_sol(self):
         cfg = _cfg()

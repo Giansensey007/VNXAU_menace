@@ -38,6 +38,7 @@ class SelectionResult:
     vnx_sol: RouteGroupBest | None
     base_vnx: RouteGroupBest | None
     reason: str
+    eth_vnx: RouteGroupBest | None = None
 
 
 def _qualifies(sim: CycleSimulation, cfg: BotConfig) -> bool:
@@ -119,12 +120,13 @@ def choose_execution(
     cfg: BotConfig,
     *,
     base_vnx: RouteGroupBest | None = None,
+    eth_vnx: RouteGroupBest | None = None,
 ) -> SelectionResult:
     """
     Parallel scan done — pick what to execute.
 
     - base↔sol vs SOL↔platform: indirect only if ≥ indirect_route_premium_usd better
-    - base↔VNX (when enabled): wins if best profit among all scanned groups
+    - base↔VNX / eth↔VNX: compete on best net profit when enabled
     """
     cs_vs_winner, cs_vs_reason = _pick_base_sol_vs_vnx_sol(base_sol, vnx_sol, cfg)
 
@@ -138,23 +140,43 @@ def choose_execution(
                 f"base↔VNX ({base_vnx.direction} ${base_vnx.net_profit_usd:.2f})",
             )
         )
+    if eth_vnx:
+        candidates.append(
+            (
+                eth_vnx,
+                f"eth↔VNX ({eth_vnx.direction} ${eth_vnx.net_profit_usd:.2f})",
+            )
+        )
 
     if not candidates:
         return SelectionResult(
-            None, base_sol, vnx_sol, base_vnx, "no profitable route in any enabled group"
+            None,
+            base_sol,
+            vnx_sol,
+            base_vnx,
+            "no profitable route in any enabled group",
+            eth_vnx=eth_vnx,
         )
 
     winner, winner_reason = max(candidates, key=lambda item: item[0].net_profit_usd)
     if len(candidates) == 1:
         reason = winner_reason
     else:
-        other = candidates[0][0] if candidates[0][0] is not winner else candidates[1][0]
+        others = [c[0] for c in candidates if c[0] is not winner]
+        best_other = max(others, key=lambda item: item.net_profit_usd)
         reason = (
             f"{winner.group} best (${winner.net_profit_usd:.2f} vs "
-            f"${other.net_profit_usd:.2f}) — {winner_reason}"
+            f"${best_other.net_profit_usd:.2f}) — {winner_reason}"
         )
 
-    return SelectionResult(winner, base_sol, vnx_sol, base_vnx, reason)
+    return SelectionResult(
+        winner,
+        base_sol,
+        vnx_sol,
+        base_vnx,
+        reason,
+        eth_vnx=eth_vnx,
+    )
 
 
 async def select_execution_route(
@@ -168,9 +190,8 @@ async def select_execution_route(
 
     cs_dirs = BASE_SOL_DIRECTIONS
     vs_dirs = VNX_SOL_DIRECTIONS if cfg.enable_vnx_cctp_routes else ()
-    cv_dirs = (
-        BASE_VNX_DIRECTIONS + ETH_VNX_DIRECTIONS if cfg.enable_vnx_arb_routes else ()
-    )
+    bv_dirs = BASE_VNX_DIRECTIONS if cfg.enable_vnx_arb_routes else ()
+    ev_dirs = ETH_VNX_DIRECTIONS if cfg.enable_vnx_arb_routes else ()
 
     base_sol = await _best_in_group(client, chains, token, cfg, "base_sol", cs_dirs)
     vnx_sol = None
@@ -178,11 +199,21 @@ async def select_execution_route(
         await stagger_delay_ms()
         vnx_sol = await _best_in_group(client, chains, token, cfg, "vnx_sol", vs_dirs)
     base_vnx = None
-    if cv_dirs:
+    if bv_dirs:
         await stagger_delay_ms()
-        base_vnx = await _best_in_group(client, chains, token, cfg, "base_vnx", cv_dirs)
+        base_vnx = await _best_in_group(client, chains, token, cfg, "base_vnx", bv_dirs)
+    eth_vnx = None
+    if ev_dirs:
+        await stagger_delay_ms()
+        eth_vnx = await _best_in_group(client, chains, token, cfg, "eth_vnx", ev_dirs)
 
-    result = choose_execution(base_sol, vnx_sol, cfg, base_vnx=base_vnx)
+    result = choose_execution(
+        base_sol,
+        vnx_sol,
+        cfg,
+        base_vnx=base_vnx,
+        eth_vnx=eth_vnx,
+    )
     if result.opportunity:
         logger.info(
             "Route selected: %s @ %.0f VNXAU ($%.2f) — %s",

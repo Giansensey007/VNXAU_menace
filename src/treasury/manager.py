@@ -285,7 +285,7 @@ class TreasuryManager:
 
         if direction.startswith("vnx_to_"):
             from src.vnx.bridge import VNXAU_WITHDRAW_FEE_BUFFER
-            from src.vnx.trading import VNXAU_MIN_ORDER, _round_down, VNXAU_USDC_QTY_DECIMALS
+            from src.vnx.trading import _round_down, VNXAU_USDC_QTY_DECIMALS, vnxau_min_order
 
             withdrawable = max(0.0, snap.platform_vnxau - VNXAU_WITHDRAW_FEE_BUFFER)
             if snap.platform_vnxau >= size_vnxau * 0.95:
@@ -295,15 +295,16 @@ class TreasuryManager:
                 size_vnxau = _round_down(withdrawable, VNXAU_USDC_QTY_DECIMALS)
                 notes.append(f"withdraw-only size {size_vnxau:.2f} VNXAU (platform balance minus fee buffer)")
             else:
-                need_usdc = VNXAU_MIN_ORDER * 1.35
+                min_order = vnxau_min_order()
+                need_usdc = min_order * 1.35
                 if snap.platform_usdc < need_usdc * 0.95:
                     notes.append(
                         f"platform short: need withdrawable VNXAU≥{size_vnxau:.0f} or USDC≥{need_usdc:.0f} "
-                        f"to buy {VNXAU_MIN_ORDER:.0f} VNXAU (platform order min; have "
+                        f"to buy {min_order:.0f} VNXAU (platform order min; have "
                         f"{snap.platform_vnxau:.1f} VNXAU, {snap.platform_usdc:.1f} USDC)"
                     )
                     return PrepareResult(False, direction, size_vnxau, notes, consolidated)
-                size_vnxau = VNXAU_MIN_ORDER
+                size_vnxau = min_order
                 notes.append(f"will buy {size_vnxau:.0f} VNXAU on platform (order minimum)")
 
         if direction in ("base_to_vnx", "base_to_solana"):

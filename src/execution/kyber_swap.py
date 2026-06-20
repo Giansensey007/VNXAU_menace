@@ -154,7 +154,13 @@ def swap_via_kyber(
         return None
 
     router = checksum(built["routerAddress"])
-    executor.approve_if_needed(token_in, router, amount_in)
+    from src.execution.token_approvals import check_allowance
+
+    err = check_allowance(executor.w3, executor.account.address, token_in, router, amount_in)
+    if err:
+        executor.last_error = err
+        logger.error(err)
+        return None
     tx = {
         "from": executor.account.address,
         "to": router,

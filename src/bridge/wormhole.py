@@ -299,7 +299,12 @@ class WormholePortalBridge:
             return WormholeBridgeResult(direction, amount_usdt, "dry-run-wormhole-base", None, True, True)
 
         exec_ = base_exec or BaseExecutor(self.base_chain)
-        exec_.approve_if_needed(token, bridge, amount_raw)
+        from src.execution.token_approvals import check_allowance
+
+        err = check_allowance(exec_.w3, exec_.account.address, token, bridge, amount_raw)
+        if err:
+            logger.error(err)
+            return WormholeBridgeResult(direction, amount_usdt, None, None, False, False, err)
 
         w3 = exec_.w3
         contract = w3.eth.contract(address=bridge, abi=TOKEN_BRIDGE_ABI)
@@ -357,7 +362,12 @@ class WormholePortalBridge:
             return WormholeBridgeResult(direction, amount_usdt, "dry-run-wormhole-base-eth", None, True, True)
 
         exec_ = base_exec or BaseExecutor(self.base_chain)
-        exec_.approve_if_needed(token, bridge, amount_raw)
+        from src.execution.token_approvals import check_allowance
+
+        err = check_allowance(exec_.w3, exec_.account.address, token, bridge, amount_raw)
+        if err:
+            logger.error(err)
+            return WormholeBridgeResult(direction, amount_usdt, None, None, False, False, err)
 
         w3 = exec_.w3
         contract = w3.eth.contract(address=bridge, abi=TOKEN_BRIDGE_ABI)

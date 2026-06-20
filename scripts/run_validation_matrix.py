@@ -30,7 +30,7 @@ SUBAGENTS = [
     ("SA-02", "quote-base-onchain", "tests/test_quotes.py::test_onchain_mock"),
     ("SA-03", "quote-vnx-platform", "tests/test_quotes.py::test_vnx_platform_quote_mock"),
     ("SA-04", "quote-router-best", "tests/test_router.py::test_quote_best_onchain"),
-    ("SA-05", "routes-eight-directions", "tests/test_routes.py::test_all_eight_directions"),
+    ("SA-05", "routes-ten-directions", "tests/test_routes.py::test_all_ten_directions"),
     ("SA-06", "route-base-vnx", "tests/test_routes.py::test_vnx_routes_need_bridge"),
     ("SA-07", "route-sol-vnx", "tests/test_routes.py::test_route_fees_vnx_platform"),
     ("SA-08", "route-base-sol", "tests/test_routes.py::test_base_sol_bridge_fee"),
@@ -51,6 +51,31 @@ SUBAGENTS = [
 ]
 
 
+_PYTEST_ENV_STRIP = (
+    "MIN_TRADE_VNXAU",
+    "MAX_TRADE_VNXAU",
+    "VNXAU_USD_MIN",
+    "VNXAU_USD_MAX",
+    "VNX_MIN_DEPOSIT_VNXAU_BASE",
+    "VNX_MIN_DEPOSIT_VNXAU_SOL",
+    "VNX_MIN_DEPOSIT_VNXAU_ETH",
+    "VNX_MIN_ORDER_VNXAU",
+    "PLATFORM_VNXAU_ONLY",
+    "JIT_WITHDRAW",
+    "ENABLE_VNX_ARB_ROUTES",
+    "ENABLE_VNX_CCTP_ROUTES",
+)
+
+
+def _pytest_env() -> dict[str, str]:
+    env = os.environ.copy()
+    for key in _PYTEST_ENV_STRIP:
+        env.pop(key, None)
+    env.setdefault("DRY_RUN", "true")
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
+
+
 def run_pytest(node: str) -> tuple[bool, str]:
     nodes = node.split()
     r = subprocess.run(
@@ -58,6 +83,7 @@ def run_pytest(node: str) -> tuple[bool, str]:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        env=_pytest_env(),
     )
     ok = r.returncode == 0
     evidence = (r.stdout + r.stderr)[-500:]

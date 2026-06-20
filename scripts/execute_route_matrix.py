@@ -955,16 +955,16 @@ async def step_platform_probe() -> bool:
 
 
 async def step_simulate_all_routes() -> bool:
-    from src.scanner.routes import CORE_ARB_DIRECTIONS, active_directions
+    from src.scanner.routes import ALL_DIRECTIONS, active_directions
 
     cfg = load_bot_config()
     chains = load_chains()
     token = load_tokens()["VNXAU"]
     active = set(active_directions(cfg))
     ok = True
-    _log(f"\n=== Simulate 6 core VNXAU routes @ {TEST_VNXAU} VNXAU (quotes only) ===")
+    _log(f"\n=== Simulate 8 VNXAU routes @ {TEST_VNXAU} VNXAU (quotes only) ===")
     async with build_client() as client:
-        for direction in CORE_ARB_DIRECTIONS:
+        for direction in ALL_DIRECTIONS:
             sim = await simulate_direction(client, chains, token, cfg, direction, TEST_VNXAU)
             tag = "act" if direction in active else "off"
             if sim.error:

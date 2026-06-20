@@ -27,7 +27,7 @@ from src.quotes.http_client import build_client
 from src.treasury.manager import TreasuryManager
 from src.vnx.bridge import VNXAU_WITHDRAW_FEE_BUFFER
 from src.vnx.client import VnxClient
-from src.vnx.trading import VNXAU_MIN_ORDER, VNXAU_USDC_QTY_DECIMALS, _round_down
+from src.vnx.trading import VNXAU_USDC_QTY_DECIMALS, _round_down, vnxau_min_order
 
 
 def _log(msg: str) -> None:
@@ -57,9 +57,10 @@ def _size_from_platform(vnxau: float, usdc: float, target: float = 31.0) -> tupl
     if withdrawable >= 5.0:
         size = _round_down(withdrawable, VNXAU_USDC_QTY_DECIMALS)
         return size, f"withdraw-only {size:.2f} VNXAU (balance {vnxau:.2f} − fee buffer {VNXAU_WITHDRAW_FEE_BUFFER})"
-    need_usdc = VNXAU_MIN_ORDER * 1.35
+    min_order = vnxau_min_order()
+    need_usdc = min_order * 1.35
     if usdc >= need_usdc * 0.95:
-        return VNXAU_MIN_ORDER, f"buy minimum {VNXAU_MIN_ORDER:.0f} VNXAU (USDC {usdc:.2f})"
+        return min_order, f"buy minimum {min_order:.0f} VNXAU (USDC {usdc:.2f})"
     raise RuntimeError(
         f"Insufficient platform funds: VNXAU={vnxau:.2f} withdrawable={withdrawable:.2f} "
         f"USDC={usdc:.2f} (need ≥5 withdrawable or ≥{need_usdc:.0f} USDC for buy min)"

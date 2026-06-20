@@ -97,7 +97,7 @@ class RouteSpec:
             return self.sell_chain
         if self.sell_chain == "vnx":
             return None
-        if {self.buy_chain, self.sell_chain} == {"base", "solana"}:
+        if {self.buy_chain, self.sell_chain} in ({"base", "solana"}, {"ethereum", "solana"}):
             return self.sell_chain
         return self.sell_chain
 

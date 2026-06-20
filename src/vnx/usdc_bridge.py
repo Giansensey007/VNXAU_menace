@@ -11,7 +11,8 @@ import httpx
 from src.config_loader import BotConfig, is_dry_run
 from src.vnx.client import VnxClient
 from src.vnx.collision import collision_backoff_sec, collision_retry_max, is_vnx_collision_error
-from src.vnx.deposits import check_usdc_deposit_amount
+from src.vnx.deposits import validate_eth_usdc_vnx_deposit
+from src.vnx.constants import VNX_ETH_DEPOSIT_ASSET, check_vnx_eth_deposit_asset
 
 logger = logging.getLogger(__name__)
 
@@ -63,10 +64,15 @@ class VnxUsdcBridge:
         if quantity <= 0:
             return UsdcBridgeResult(direction, quantity, "", "", None, None, is_dry_run(), False, "zero quantity")
 
-        dep_err = check_usdc_deposit_amount(self.eth_blockchain, quantity)
+        dep_err = validate_eth_usdc_vnx_deposit(quantity, blockchain=self.eth_blockchain)
         if dep_err:
             logger.error("Aborting USDC deposit to VNX (%s): %s", self.eth_blockchain, dep_err)
             return UsdcBridgeResult(direction, quantity, "", "", None, None, is_dry_run(), False, dep_err)
+
+        asset_guard = check_vnx_eth_deposit_asset(VNX_ETH_DEPOSIT_ASSET, self.eth_blockchain)
+        if asset_guard:
+            logger.error("VNX ETH deposit asset guard: %s", asset_guard)
+            return UsdcBridgeResult(direction, quantity, "", "", None, None, is_dry_run(), False, asset_guard)
 
         if is_dry_run():
             logger.info("[DRY_RUN] USDC deposit %.2f to VNX (%s)", quantity, self.eth_blockchain)

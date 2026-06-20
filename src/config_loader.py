@@ -10,6 +10,7 @@ import yaml
 from dotenv import load_dotenv
 
 from src.quotes.addresses import checksum, normalize_address
+from src.vnx.constants import check_eth_hub_stable_for_vnx
 
 load_dotenv()
 
@@ -143,6 +144,10 @@ def load_chains() -> dict[str, ChainConfig]:
             if pool.get("address"):
                 pool["address"] = checksum(pool["address"])
         chains[key] = chain
+    if "ethereum" in chains:
+        eth_err = check_eth_hub_stable_for_vnx(chains["ethereum"].hub_stable, context="chains.yaml")
+        if eth_err:
+            raise ValueError(eth_err)
     return chains
 
 

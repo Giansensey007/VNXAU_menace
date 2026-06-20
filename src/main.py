@@ -126,6 +126,10 @@ async def main_loop() -> None:
     except Exception as exc:
         logger.warning("VNX public key not derived: %s", exc)
 
+    from src.execution.token_approvals import run_startup_approvals
+
+    run_startup_approvals()
+
     bot_cfg = load_bot_config()
     logger.info(
         "VNXAU Menace deploy dry_run=%s poll=%ds size=%.0f-%.0f VNXAU cctp=%s premium=$%.0f "

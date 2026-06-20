@@ -13,7 +13,12 @@ from src.vnx.collision import collision_backoff_sec, collision_retry_max, is_vnx
 logger = logging.getLogger(__name__)
 
 VNXAU_USDC = "VNXAU/USDC"
-VNXAU_MIN_ORDER = float(os.getenv("VNX_MIN_ORDER_VNXAU", "0.4"))
+
+
+def vnxau_min_order() -> float:
+    return float(os.getenv("VNX_MIN_ORDER_VNXAU", "0.4"))
+
+
 DEFAULT_QTY_DECIMALS = 5
 DEFAULT_PRICE_DECIMALS = 6
 # From VNX tradingPairs — avoid calling tradingPairs immediately before quotes (rate-limit quirk)
@@ -257,20 +262,20 @@ async def platform_sell_vnxau(
     vnx: VnxClient | None = None,
 ) -> PlatformOrderResult:
     """Sell VNXAU on VNX platform for USDC (FOK limit at bid)."""
-    if quantity < VNXAU_MIN_ORDER:
+    if quantity < vnxau_min_order():
         return PlatformOrderResult(
             success=False,
             side="Sell",
             quantity=quantity,
             price=0.0,
             clordid="",
-            error=f"below VNX min order ({VNXAU_MIN_ORDER} VNXAU)",
+            error=f"below VNX min order ({vnxau_min_order()} VNXAU)",
         )
 
     async def _run(client: VnxClient) -> PlatformOrderResult:
         qty_decimals = await _pair_qty_decimals(client)
         qty = _round_down(quantity, qty_decimals)
-        if qty < VNXAU_MIN_ORDER:
+        if qty < vnxau_min_order():
             return PlatformOrderResult(
                 success=False,
                 side="Sell",
@@ -325,20 +330,20 @@ async def platform_buy_vnxau(
     vnx: VnxClient | None = None,
 ) -> PlatformOrderResult:
     """Buy VNXAU on VNX platform with USDC (FOK limit at ask)."""
-    if quantity < VNXAU_MIN_ORDER:
+    if quantity < vnxau_min_order():
         return PlatformOrderResult(
             success=False,
             side="Buy",
             quantity=quantity,
             price=0.0,
             clordid="",
-            error=f"below VNX min order ({VNXAU_MIN_ORDER} VNXAU)",
+            error=f"below VNX min order ({vnxau_min_order()} VNXAU)",
         )
 
     async def _run(client: VnxClient) -> PlatformOrderResult:
         qty_decimals = await _pair_qty_decimals(client)
         qty = _round_down(quantity, qty_decimals)
-        if qty < VNXAU_MIN_ORDER:
+        if qty < vnxau_min_order():
             return PlatformOrderResult(
                 success=False,
                 side="Buy",
