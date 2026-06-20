@@ -124,7 +124,7 @@ GROUPS: list[tuple[str, str, tuple[str, ...]]] = [
 ]
 
 
-def _tikz_route_row(y: float, direction: str, active: bool) -> list[str]:
+def _tikz_route_row(row: int, y: int, direction: str, active: bool) -> list[str]:
     label, steps, recon = ROUTE_FLOWS[direction]
     xs = [0, 19, 38, 57, 76, 93]
     lines: list[str] = []
@@ -134,6 +134,7 @@ def _tikz_route_row(y: float, direction: str, active: bool) -> list[str]:
     nodes: list[str] = []
     for i, (kind, text) in enumerate(steps):
         x = xs[i]
+        nid = f"n{row}{i}"
         if kind == "hub":
             chain = text.split("\\\\")[0].lower()
             style = {
@@ -144,24 +145,27 @@ def _tikz_route_row(y: float, direction: str, active: bool) -> list[str]:
             }.get(chain, ("ink", "surface"))
             stroke, fill = style
             lines.append(
-                rf"\node[hub={stroke}, fill={fill}{opacity}, anchor=west] (n{i}_{y}) at ({x},{y}) {{{text}}};"
+                rf"\node[hub={stroke}, fill={fill}{opacity}, anchor=west] ({nid}) at ({x},{y}) {{{text}}};"
             )
         elif kind == "vnx":
             lines.append(
-                rf"\node[act=vnxstroke, fill=vnxfill{opacity}, anchor=west] (n{i}_{y}) at ({x},{y}) {{{text}}};"
+                rf"\node[act=vnxstroke, fill=vnxfill{opacity}, anchor=west] ({nid}) at ({x},{y}) {{{text}}};"
             )
         else:
             chain_hint = "solstroke" if "Jupiter" in text else "basestroke"
             lines.append(
-                rf"\node[act={chain_hint}{opacity}, anchor=west] (n{i}_{y}) at ({x},{y}) {{{text}}};"
+                rf"\node[act={chain_hint}{opacity}, anchor=west] ({nid}) at ({x},{y}) {{{text}}};"
             )
-        nodes.append(f"n{i}_{y}")
+        nodes.append(nid)
 
     if recon:
+        rid = f"r{row}"
         lines.append(
-            rf"\node[recon{opacity}, anchor=west] (r{y}) at ({xs[5]},{y}) {{{recon}}};"
+            rf"\node[recon{opacity}, anchor=west] ({rid}) at ({xs[5]},{y}) {{{recon}}};"
         )
-        lines.append(rf"\draw[arr{opacity}] ({nodes[0]})--({nodes[1]})--({nodes[2]})--({nodes[3]})--({nodes[4]})--(r{y});")
+        lines.append(
+            rf"\draw[arr{opacity}] ({nodes[0]})--({nodes[1]})--({nodes[2]})--({nodes[3]})--({nodes[4]})--({rid});"
+        )
     else:
         lines.append(
             rf"\draw[arr{opacity}] ({nodes[0]})--({nodes[1]})--({nodes[2]})--({nodes[3]})--({nodes[4]});"
@@ -187,6 +191,7 @@ def _build_latex() -> str:
   \setmonofont{Latin Modern Mono}[Scale=0.88]}
 \usepackage{xcolor}
 \usepackage{array}
+\usepackage{adjustbox}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta,calc,positioning}
 \pagestyle{empty}
@@ -313,28 +318,29 @@ Idle VNXAU lives on platform only}
 """
 
     body_lines: list[str] = []
-    y = 0.0
-    group_header_step = 10.0
-    row_step = 9.0
+    y = 0
+    group_header_step = 10
+    row_step = 9
+    row_idx = 0
 
-    body_lines.append(r"\noindent\adjustbox{width=\linewidth}{%")
-    body_lines.append(r"\begin{tikzpicture}[x=1mm,y=-1mm]")
+    body_lines.append(r"\noindent\adjustbox{width=\linewidth,center}{%")
+    body_lines.append(r"\begin{tikzpicture}[x=0.82mm,y=-0.82mm]")
     body_lines.append(r"\useasboundingbox (-21,-2) rectangle (112,92);")
 
-    for g_idx, (group_id, group_title, directions) in enumerate(GROUPS):
+    for _g_idx, (_group_id, group_title, directions) in enumerate(GROUPS):
         gy = y
         body_lines.append(
             rf"\node[anchor=west, font=\fontsize{{8.5}}{{10}}\selectfont\bfseries\color{{primary}}] at (0,{gy}) {{{group_title}}};"
         )
         y += group_header_step
         for direction in directions:
-            body_lines.extend(_tikz_route_row(y, direction, direction in active))
+            body_lines.extend(_tikz_route_row(row_idx, y, direction, direction in active))
+            row_idx += 1
             y += row_step
 
     body_lines.append(
-        r"\node[anchor=west, font=\fontsize{6}{7.5}\selectfont, text=ink!55, text width=112mm] at (0,"
-        + str(y + 2)
-        + r") {Each row = one scanned direction. Dashed recon box = post-trade stable rebalance. Greyed rows = flag-disabled.};"
+        rf"\node[anchor=west, font=\fontsize{{6}}{{7.5}}\selectfont, text=ink!55, text width=112mm] at (0,{y + 2}) "
+        r"{Each row = one scanned direction. Dashed recon box = post-trade stable rebalance. Greyed rows = flag-disabled.};"
     )
     body_lines.append(r"\end{tikzpicture}}")
 
@@ -376,21 +382,22 @@ def main() -> int:
     if args.no_compile:
         return 0
 
-    for engine in ("lualatex", "pdflatex"):
-        for _ in range(2):
-            proc = subprocess.run(
-                [engine, "-interaction=nonstopmode", "-output-directory", str(DOCS), tex_path.name],
-                cwd=DOCS,
-                capture_output=True,
-                text=True,
-            )
-        if proc.returncode == 0 and pdf_path.exists():
-            print(f"Wrote {pdf_path} ({pdf_path.stat().st_size:,} bytes)")
-            return 0
+    proc = None
+    for _ in range(2):
+        proc = subprocess.run(
+            ["lualatex", "-interaction=nonstopmode", "-output-directory", str(DOCS), tex_path.name],
+            cwd=DOCS,
+            capture_output=True,
+            text=True,
+        )
+    if proc and proc.returncode == 0 and pdf_path.exists():
+        print(f"Wrote {pdf_path} ({pdf_path.stat().st_size:,} bytes)")
+        return 0
 
-    print(proc.stdout[-3000:] if proc.stdout else "")
-    print(proc.stderr[-1000:] if proc.stderr else "")
-    print("LaTeX compile failed", file=sys.stderr)
+    if proc:
+        print(proc.stdout[-3000:] if proc.stdout else "")
+        print(proc.stderr[-1000:] if proc.stderr else "")
+    print("lualatex compile failed", file=sys.stderr)
     return 1
 
 
