@@ -2,17 +2,15 @@ from __future__ import annotations
 
 from src.config_loader import BotConfig
 
-# Expected USD per 1 VNXAU (rough CHF/USD band)
-VNXAU_USD_MIN = 1.20
-VNXAU_USD_MAX = 1.45
-
 
 def check_vnxau_usd_rate(stable_usd: float, size_vnxau: float, cfg: BotConfig) -> tuple[bool, str]:
     if size_vnxau <= 0:
         return False, "zero size"
     rate = stable_usd / size_vnxau
-    if rate < VNXAU_USD_MIN or rate > VNXAU_USD_MAX:
-        return False, f"VNXAU/USD rate {rate:.4f} outside [{VNXAU_USD_MIN}, {VNXAU_USD_MAX}]"
+    if rate < cfg.vnxau_usd_min or rate > cfg.vnxau_usd_max:
+        return False, (
+            f"VNXAU/USD rate {rate:.4f} outside [{cfg.vnxau_usd_min}, {cfg.vnxau_usd_max}]"
+        )
     return True, f"VNXAU/USD {rate:.4f} ok"
 
 

@@ -10,6 +10,8 @@ bot:
   quote_freshness_sec: 30
   peg_min: 0.98
   peg_max: 1.02
+  vnxau_usd_min: 80
+  vnxau_usd_max: 250
   vnx_bridge_poll_sec: 30
   vnx_bridge_timeout_sec: 3600
   base_gas_usd_estimate: 0.05

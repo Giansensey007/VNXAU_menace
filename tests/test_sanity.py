@@ -6,7 +6,7 @@ from src.sanity.check import sanity_check_config, run_full_sanity
 
 def test_peg_and_vnxau_rate():
     cfg = load_bot_config()
-    ok, _ = check_vnxau_usd_rate(135.0, 100.0, cfg)
+    ok, _ = check_vnxau_usd_rate(13_500.0, 100.0, cfg)  # ~$135/VNXAU gold band
     assert ok
     ok2, _ = check_stable_peg(135.0, 135.5, cfg)
     assert ok2

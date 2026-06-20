@@ -64,11 +64,13 @@ async def agent_sa00() -> AgentResult:
 
 
 async def agent_sa01() -> AgentResult:
-    from src.config_loader import load_chains, load_tokens, token_decimals
+    from src.config_loader import load_bot_config, load_chains, load_tokens, token_decimals
     from src.quotes.http_client import build_client
     from src.quotes.router import sell_token_for_stable
+    from src.quotes.sanity import check_vnxau_usd_rate
     from src.quotes.types import from_human, to_human
 
+    cfg = load_bot_config()
     chains = load_chains()
     token = load_tokens()["VNXAU"]
     sol = chains["solana"]
@@ -81,21 +83,23 @@ async def agent_sa01() -> AgentResult:
         return AgentResult("SA-01", "live-jupiter-sol-sell", False, "no quote")
     usdc = float(to_human(q.amount_out, sol.hub_decimals))
     rate = usdc / size
-    ok = 1.0 < rate < 2.0
+    ok, rate_msg = check_vnxau_usd_rate(usdc, size, cfg)
     return AgentResult(
         "SA-01",
         "live-jupiter-sol-sell",
         ok,
-        f"{size} VNXAU -> {usdc:.4f} USDC ({rate:.4f}/VNXAU) via {q.provider}",
+        f"{size} VNXAU -> {usdc:.4f} USDC ({rate:.4f}/VNXAU) via {q.provider}; {rate_msg}",
     )
 
 
 async def agent_sa02() -> AgentResult:
-    from src.config_loader import load_chains, load_tokens, token_decimals
+    from src.config_loader import load_bot_config, load_chains, load_tokens, token_decimals
     from src.quotes.http_client import build_client
     from src.quotes.router import buy_token_with_stable
+    from src.quotes.sanity import check_vnxau_usd_rate
     from src.quotes.types import from_human, to_human
 
+    cfg = load_bot_config()
     chains = load_chains()
     token = load_tokens()["VNXAU"]
     base = chains["base"]
@@ -108,12 +112,12 @@ async def agent_sa02() -> AgentResult:
         return AgentResult("SA-02", "live-base-onchain-buy", False, "no quote")
     vnxau = float(to_human(q.amount_out, dec))
     rate = usdt / vnxau if vnxau else 0
-    ok = 1.0 < rate < 2.0
+    ok, rate_msg = check_vnxau_usd_rate(usdt, vnxau, cfg) if vnxau else (False, "zero VNXAU out")
     return AgentResult(
         "SA-02",
         "live-base-onchain-buy",
         ok,
-        f"{usdt:.2f} USDT -> {vnxau:.4f} VNXAU ({rate:.4f} USDT/VNXAU) via {q.provider}",
+        f"{usdt:.2f} USDT -> {vnxau:.4f} VNXAU ({rate:.4f} USDT/VNXAU) via {q.provider}; {rate_msg}",
     )
 
 

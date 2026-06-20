@@ -97,6 +97,8 @@ class BotConfig:
     close_loop_always_return: bool = True
     close_loop_min_net_usd: float = 0.0
     jit_withdraw: bool = True
+    vnxau_usd_min: float = 80.0
+    vnxau_usd_max: float = 250.0
 
 
 def _chain_types_from_yaml() -> dict[str, str]:
@@ -159,6 +161,8 @@ def load_bot_config() -> BotConfig:
         quote_freshness_sec=raw.get("quote_freshness_sec", 30),
         peg_min=raw.get("peg_min", 0.98),
         peg_max=raw.get("peg_max", 1.02),
+        vnxau_usd_min=float(os.getenv("VNXAU_USD_MIN", raw.get("vnxau_usd_min", 80))),
+        vnxau_usd_max=float(os.getenv("VNXAU_USD_MAX", raw.get("vnxau_usd_max", 250))),
         vnx_bridge_poll_sec=int(os.getenv("VNX_BRIDGE_POLL_SEC", raw.get("vnx_bridge_poll_sec", 30))),
         vnx_bridge_timeout_sec=int(
             os.getenv("VNX_BRIDGE_TIMEOUT_SEC", raw.get("vnx_bridge_timeout_sec", 3600))
