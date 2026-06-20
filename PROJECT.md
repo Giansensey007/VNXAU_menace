@@ -6,7 +6,7 @@ Base ↔ Solana **VNXAU/USDC arbitrage executor** with VNX Platform bridging for
 - **Local path:** `environment/VNXAU_Menace/` (nested git — not VNX_trakcer)
 - **Default mode:** `DRY_RUN=true` (simulate only)
 
-## Arb routes (6 directions)
+## Arb routes (8 directions)
 
 | Route | Buy VNXAU on | Sell VNXAU on | Rebalance |
 |-------|-------------|--------------|-----------|
@@ -16,16 +16,19 @@ Base ↔ Solana **VNXAU/USDC arbitrage executor** with VNX Platform bridging for
 | `vnx_to_base` | VNX Platform | Base (USDT) | withdraw |
 | `solana_to_vnx` | Solana (USDC) | VNX Platform | deposit |
 | `vnx_to_solana` | VNX Platform | Solana (USDC) | withdraw |
+| `ethereum_to_vnx` | Ethereum (USDC) | VNX Platform | deposit |
+| `vnx_to_ethereum` | VNX Platform | Ethereum (USDC) | withdraw |
 
-**Coverage:** SOL ↔ BASE, VNX ↔ BASE, VNX ↔ SOL
+**Coverage:** SOL ↔ BASE, VNX ↔ BASE, VNX ↔ SOL, VNX ↔ ETH
 
-## Validation (20 agents × 5 iterations)
+## Validation (22 agents × 10 iterations)
 
-- **SA-00** `sanity-check-all` — runs every iteration first (config, env, 6 routes, peg checks)
-- **SA-01..SA-19** — quotes, routes, wallets, executor, security, DB
+- **SA-00** `sanity-check-all` — runs every iteration first (config, env, 8 routes, peg checks)
+- **SA-01..SA-21** — quotes, routes, wallets, executor, security, DB, CCTP
 
 ```bash
-python scripts/run_validation_matrix.py --iterations 5 --live
+python scripts/run_validation_matrix.py --iterations 10
+python scripts/run_sanity_10.py --iterations 10
 python scripts/simulate_cycle.py --all --size 50
 ```
 
