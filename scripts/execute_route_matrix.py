@@ -43,6 +43,7 @@ from src.bridge.hub_eth import (
 from src.bridge.wormhole_queue import WormholeClaimQueue
 from src.config_loader import load_bot_config, load_chains, load_tokens, token_decimals
 from src.execution.base import BaseExecutor
+from src.execution.evm_swap import swap_tokens as evm_swap_tokens
 from src.execution.executor import ArbExecutor, CycleRecord, CycleState
 from src.execution.solana import SolanaExecutor
 from src.execution.tx_log import TX_LOG_PATH, log_platform_order, log_tx
@@ -343,12 +344,12 @@ async def step_base_swaps() -> bool:
     # Prefer USDT→VNXAU→USDT when USDT funded; else round-trip existing VNXAU
     if usdt_bal >= PROBE_USDC:
         usdt_in = from_human(min(5.0, usdt_bal * 0.9), chains["base"].hub_decimals)
-        sim = base.simulate_swap(usdt_token, token.chains["base"], usdt_in, 100)
+        sim = base.simulate_swap(usdt_token, token.chains["base"], usdt_in)
         if not sim:
             _log("FAIL base buy quote")
             return False
         min_out = int(sim["amount_out"] * 0.97)
-        tx1 = base.swap_exact_input(usdt_token, token.chains["base"], usdt_in, min_out)
+        tx1 = evm_swap_tokens(base, chains["base"], usdt_token, token.chains["base"], usdt_in, min_out)
         if not tx1:
             _log("FAIL base buy")
             return False
@@ -360,9 +361,9 @@ async def step_base_swaps() -> bool:
         _log(f"FAIL base swaps — no USDT ({usdt_bal:.2f}) or VNXAU on Base")
         return False
 
-    sell_sim = base.simulate_swap(token.chains["base"], usdt_token, vnxau_raw, 100)
+    sell_sim = base.simulate_swap(token.chains["base"], usdt_token, vnxau_raw)
     min_usdt = int(sell_sim["amount_out"] * 0.97) if sell_sim else int(0.01 * 10**chains["base"].hub_decimals)
-    tx2 = base.swap_exact_input(token.chains["base"], usdt_token, vnxau_raw, min_usdt)
+    tx2 = evm_swap_tokens(base, chains["base"], token.chains["base"], usdt_token, vnxau_raw, min_usdt)
     if not tx2:
         _log("FAIL base sell")
         return False
@@ -374,11 +375,11 @@ async def step_base_swaps() -> bool:
     usdt_after = base.balance_erc20(usdt_token)
     if usdt_after <= 0:
         return True
-    buy_sim = base.simulate_swap(usdt_token, token.chains["base"], usdt_after, 100)
+    buy_sim = base.simulate_swap(usdt_token, token.chains["base"], usdt_after)
     if not buy_sim:
         return True
     min_vnxau = int(buy_sim["amount_out"] * 0.97)
-    tx3 = base.swap_exact_input(usdt_token, token.chains["base"], usdt_after, min_vnxau)
+    tx3 = evm_swap_tokens(base, chains["base"], usdt_token, token.chains["base"], usdt_after, min_vnxau)
     if tx3:
         log_tx("probe_base_buy_vnxau", "base", tx3)
     return bool(tx3)

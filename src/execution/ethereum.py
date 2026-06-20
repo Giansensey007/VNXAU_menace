@@ -481,16 +481,22 @@ class EthereumExecutor:
         return self._build_and_send(tx, fn=fn)
 
     def simulate_swap(
-        self, token_in: str, token_out: str, amount_in: int, fee: int = 100
+        self, token_in: str, token_out: str, amount_in: int, fee: int = 3000
     ) -> dict | None:
-        from src.quotes.onchain import quote_pool
+        from src.config_loader import load_tokens, token_decimals
+        from src.execution.evm_quote import simulate_evm_swap
 
-        if not self.chain.quoter_v2:
+        token = load_tokens().get("VNXAU")
+        if not token:
             return None
-        q = quote_pool(self.w3, self.chain.quoter_v2, token_in, token_out, amount_in, fee)
-        if not q.ok:
-            return None
-        return {"amount_in": amount_in, "amount_out": q.amount_out, "provider": q.provider}
+        return simulate_evm_swap(
+            self.chain,
+            token_in,
+            token_out,
+            amount_in,
+            vnxau_addr=token.chains.get(self.chain.key, ""),
+            vnxau_decimals=token_decimals(token, self.chain.key),
+        )
 
     def unwrap_weth(self, amount_wei: int | None = None) -> str | None:
         """Unwrap WETH balance to native ETH."""

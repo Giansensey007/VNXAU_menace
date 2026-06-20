@@ -8,11 +8,15 @@ import httpx
 
 from src.config_loader import ChainConfig
 from src.quotes.addresses import checksum
+from src.quotes.kyber import (
+    KYBER_BASE,
+    kyber_headers,
+    parse_route_response,
+    route_params,
+    routes_url,
+)
 
 logger = logging.getLogger(__name__)
-
-KYBER_BASE = os.getenv("KYBER_API_URL", "https://aggregator-api.kyberswap.com").rstrip("/")
-KYBER_CLIENT_ID = os.getenv("KYBER_CLIENT_ID", "vnxau-menace")
 
 
 class _EvmSwapExecutor(Protocol):
@@ -24,10 +28,6 @@ class _EvmSwapExecutor(Protocol):
     def _build_and_send(self, tx: dict, *, fn=None) -> str | None: ...
 
 
-def _kyber_headers() -> dict[str, str]:
-    return {"X-Client-Id": KYBER_CLIENT_ID, "Content-Type": "application/json"}
-
-
 def fetch_route(
     chain: ChainConfig,
     token_in: str,
@@ -37,22 +37,16 @@ def fetch_route(
     """Return (routeSummary, amountOut) from KyberSwap v1 routes API."""
     if not chain.kyber_slug or amount_in <= 0:
         return None, 0
-    url = f"{KYBER_BASE}/{chain.kyber_slug}/api/v1/routes"
-    params = {
-        "tokenIn": checksum(token_in),
-        "tokenOut": checksum(token_out),
-        "amountIn": str(amount_in),
-    }
+    url = routes_url(chain)
+    params = route_params(token_in, token_out, amount_in)
     try:
         with httpx.Client(timeout=25.0) as client:
-            resp = client.get(url, params=params, headers=_kyber_headers())
+            resp = client.get(url, params=params, headers={**kyber_headers(), "Content-Type": "application/json"})
             if resp.status_code >= 400:
                 logger.warning("Kyber route HTTP %s: %s", resp.status_code, resp.text[:160])
                 return None, 0
-            data = resp.json().get("data", {})
-            summary = data.get("routeSummary") or {}
-            amount_out = int(summary.get("amountOut") or 0)
-            if amount_out <= 0:
+            summary, amount_out, _ = parse_route_response(resp.json().get("data", {}), amount_in)
+            if not summary or amount_out <= 0:
                 return None, 0
             return summary, amount_out
     except Exception as exc:
@@ -80,7 +74,7 @@ def build_swap_tx(
     }
     try:
         with httpx.Client(timeout=25.0) as client:
-            resp = client.post(url, json=payload, headers=_kyber_headers())
+            resp = client.post(url, json=payload, headers=kyber_headers())
             if resp.status_code >= 400:
                 logger.warning("Kyber build HTTP %s: %s", resp.status_code, resp.text[:160])
                 return None

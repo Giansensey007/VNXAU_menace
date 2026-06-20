@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.quotes.jupiter import quote
-from src.quotes.types import ProviderQuote
+from src.quotes.types import ProviderQuote, from_human
 
 
 @pytest.mark.asyncio
@@ -19,7 +19,7 @@ async def test_kyber_quote_base_mock():
     mock_resp.json.return_value = {
         "data": {
             "routeSummary": {
-                "amountOut": "1350000",
+                "amountOut": "131000000",
                 "route": [[{"exchange": "UniswapV3"}]],
             }
         }
@@ -34,7 +34,7 @@ async def test_kyber_quote_base_mock():
             amount,
         )
     assert q.ok
-    assert q.amount_out == 1_350_000
+    assert q.amount_out == 131_000_000
     assert q.provider == "kyber"
 
 
@@ -50,7 +50,7 @@ async def test_kyber_quote_mock():
     mock_resp.json.return_value = {
         "data": {
             "routeSummary": {
-                "amountOut": "1350000",
+                "amountOut": "131000000",
                 "route": [[{"exchange": "UniswapV3"}]],
             }
         }
@@ -65,7 +65,7 @@ async def test_kyber_quote_mock():
             amount,
         )
     assert q.ok
-    assert q.amount_out == 1_350_000
+    assert q.amount_out == 131_000_000
     assert q.provider == "kyber"
 
 
@@ -83,7 +83,8 @@ async def test_router_kyber_with_uniswap_fallback():
         return ProviderQuote("kyber", amount, 0, error="no route")
 
     def fake_onchain(*_a, **_k):
-        return [ProviderQuote("uniswap_v3", amount, 4_900_000, route_dexs=["UniswapV3-3000"])]
+        # ~$131/VNXAU: 5 USDC buys ~0.038 VNXAU
+        return [ProviderQuote("uniswap_v3", amount, 38_000_000_000_000_000, route_dexs=["UniswapV3-3000"])]
 
     with patch("src.quotes.router.kyber.quote", new=fake_kyber), patch(
         "src.quotes.router.onchain.quote_onchain_pools", new=fake_onchain
@@ -91,6 +92,65 @@ async def test_router_kyber_with_uniswap_fallback():
         q = await quote_best(AsyncMock(), chain, token_in, token_out, amount, 6, 18, "VNXAU")
     assert q is not None
     assert q.provider == "uniswap_v3"
+
+
+@pytest.mark.asyncio
+async def test_kyber_rejects_limit_order_garbage():
+    from src.config_loader import load_bot_config, load_chains, load_tokens, token_decimals
+    from src.quotes import kyber
+
+    chain = load_chains()["ethereum"]
+    token = load_tokens()["VNXAU"]
+    dec = token_decimals(token, "ethereum")
+    vnxau = token.chains["ethereum"]
+    amount = from_human(50, dec)
+    cfg = load_bot_config()
+
+    bad_out = from_human(10.0 * 50, chain.hub_decimals)  # $10/VNXAU
+    assert not kyber.vnxau_quote_sane(amount, bad_out, vnxau, chain.hub_token, vnxau, chain, dec, cfg)
+
+    good_out = from_human(131.0 * 50, chain.hub_decimals)
+    assert kyber.vnxau_quote_sane(amount, good_out, vnxau, chain.hub_token, vnxau, chain, dec, cfg)
+
+
+@pytest.mark.asyncio
+async def test_kyber_route_params_exclude_limit_orders():
+    from src.quotes import kyber
+
+    params = kyber.route_params(
+        "0x6d57B2E05F26C26b549231c866bdd39779e4a488",
+        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        1_000_000,
+    )
+    assert "excludedSources" in params
+    assert "limit-order" in params["excludedSources"]
+
+
+@pytest.mark.asyncio
+async def test_router_rejects_bad_kyber_eth_quote():
+    from src.config_loader import load_chains, load_tokens, token_decimals
+    from src.quotes.router import sell_token_for_stable
+
+    chain = load_chains()["ethereum"]
+    token = load_tokens()["VNXAU"]
+    dec = token_decimals(token, "ethereum")
+    amount = from_human(50, dec)
+
+    async def fake_kyber(*_a, **_k):
+        return ProviderQuote("kyber", amount, 516_000_000)  # ~$10/VNXAU
+
+    with patch("src.quotes.router.kyber.quote", new=fake_kyber), patch(
+        "src.quotes.router.onchain.quote_onchain_pools", return_value=[]
+    ), patch("src.quotes.router.api_sync", new=AsyncMock()):
+        q = await sell_token_for_stable(AsyncMock(), chain, token, "ethereum", amount)
+    assert q is None
+
+
+def test_sanitize_rpc_url():
+    from src.config_loader import _sanitize_rpc_url
+
+    assert _sanitize_rpc_url("https://ethereum.publicnode.comVNX_BASE_") == "https://ethereum.publicnode.com"
+    assert _sanitize_rpc_url("  https://base.llamarpc.com  ") == "https://base.llamarpc.com"
 
 
 @pytest.mark.asyncio

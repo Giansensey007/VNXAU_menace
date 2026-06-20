@@ -238,12 +238,20 @@ class BaseExecutor:
         return result
 
     def simulate_swap(
-        self, token_in: str, token_out: str, amount_in: int, fee: int = 100
+        self, token_in: str, token_out: str, amount_in: int, fee: int = 3000
     ) -> dict | None:
-        """eth_call simulation via quoter — read-only."""
-        from src.quotes.onchain import quote_pool
+        """Dry-run quote: Kyber aggregator then on-chain Uniswap fee tiers."""
+        from src.config_loader import load_tokens, token_decimals
+        from src.execution.evm_quote import simulate_evm_swap
 
-        q = quote_pool(self.w3, self.chain.quoter_v2 or "", token_in, token_out, amount_in, fee)
-        if not q.ok:
+        token = load_tokens().get("VNXAU")
+        if not token:
             return None
-        return {"amount_in": amount_in, "amount_out": q.amount_out, "provider": q.provider}
+        return simulate_evm_swap(
+            self.chain,
+            token_in,
+            token_out,
+            amount_in,
+            vnxau_addr=token.chains.get(self.chain.key, ""),
+            vnxau_decimals=token_decimals(token, self.chain.key),
+        )

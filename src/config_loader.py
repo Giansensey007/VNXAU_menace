@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,22 @@ ETH_RPC_FALLBACKS: tuple[str, ...] = (
 )
 
 
+def _sanitize_rpc_url(raw: str) -> str:
+    raw = (raw or "").strip()
+    if not raw:
+        return ""
+    match = re.match(r"(https?://[^\s\"'<>]+)", raw)
+    url = match.group(1) if match else ""
+    if not url:
+        return ""
+    glued = re.search(r"([A-Z][A-Z0-9_]{2,})$", url)
+    if glued:
+        prefix = url[: glued.start()]
+        if re.search(r"\.[a-z]{2,6}$", prefix, re.I):
+            return prefix
+    return url
+
+
 @dataclass
 class ChainConfig:
     key: str
@@ -54,7 +71,7 @@ class ChainConfig:
 
     @property
     def rpc_url(self) -> str:
-        return os.getenv(self.rpc_env) or DEFAULT_RPC.get(self.rpc_env, "")
+        return _sanitize_rpc_url(os.getenv(self.rpc_env) or DEFAULT_RPC.get(self.rpc_env, ""))
 
 
 @dataclass

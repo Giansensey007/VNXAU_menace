@@ -30,7 +30,7 @@ async def test_quote_best_kyber_base():
 
     chain = load_chains()["base"]
     amount = 1_000_000_000_000_000_000
-    fake = ProviderQuote("kyber", amount, 1_350_000, route_dexs=["UniswapV3"])
+    fake = ProviderQuote("kyber", amount, 131_000_000, route_dexs=["UniswapV3"])
 
     with patch("src.quotes.router.kyber.quote", new=AsyncMock(return_value=fake)), patch(
         "src.quotes.router.api_sync", new=AsyncMock()
@@ -55,7 +55,7 @@ async def test_quote_best_kyber_ethereum():
 
     chain = load_chains()["ethereum"]
     amount = 1_000_000_000_000_000_000
-    fake = ProviderQuote("kyber", amount, 1_350_000, route_dexs=["UniswapV3"])
+    fake = ProviderQuote("kyber", amount, 131_000_000, route_dexs=["UniswapV3"])
 
     with patch("src.quotes.router.kyber.quote", new=AsyncMock(return_value=fake)), patch(
         "src.quotes.router.api_sync", new=AsyncMock()

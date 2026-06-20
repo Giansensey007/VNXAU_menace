@@ -51,12 +51,16 @@ async def main() -> None:
             else:
                 print("  Sol sell: FAILED")
 
-            usdt_probe = from_human(size * 1.35, base.hub_decimals)
+            usdt_probe = from_human(size * 135.0, base.hub_decimals)
             buy_base = await buy_token_with_stable(client, base, token, "base", usdt_probe)
             if buy_base:
                 vnxau = float(to_human(buy_base.amount_out, base_dec))
-                usdt = float(to_human(usdt_probe, base.hub_decimals))
-                print(f"  Base buy: {usdt:.2f} USDT -> {vnxau:.4f} VNXAU via {buy_base.provider}")
+                usdc_in = float(to_human(usdt_probe, base.hub_decimals))
+                rate = usdc_in / vnxau if vnxau else 0
+                print(
+                    f"  Base buy: {usdc_in:.2f} USDC -> {vnxau:.4f} VNXAU "
+                    f"({rate:.2f} USDC/VNXAU) via {buy_base.provider}"
+                )
             else:
                 print("  Base buy: FAILED")
 
