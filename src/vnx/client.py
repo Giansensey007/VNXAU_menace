@@ -11,18 +11,25 @@ import httpx
 
 from src.quotes.rate_limit import get_with_retry, post_with_retry
 from src.vnx.auth import auth_headers, canonical_vnx_body, ensure_public_key_env, sort_object_deep
-from src.vnx.collision import is_vnx_collision_error
+from src.vnx.collision import (
+    collision_backoff_sec,
+    collision_retry_max,
+    is_vnx_collision_error,
+    vnx_error_message,
+)
 
 logger = logging.getLogger(__name__)
 
 VNX_API_BASE = os.getenv("VNX_API_BASE", "https://api.vnx.li/api/v1").rstrip("/")
+
+# Shared across VnxClient instances — GBP/VCHF/VNXAU bots share one VNX API key.
+_GLOBAL_LAST_NONCE = 0
 
 
 class VnxClient:
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
         self._client = client
         self._owns_client = client is None
-        self._last_nonce = 0
 
     async def __aenter__(self) -> VnxClient:
         if self._client is None:
@@ -75,68 +82,139 @@ class VnxClient:
         return resp.json()
 
     def _next_nonce(self) -> int:
+        global _GLOBAL_LAST_NONCE
         candidate = int(time.time() * 1000)
-        self._last_nonce = max(candidate, self._last_nonce + 1)
-        return self._last_nonce
+        _GLOBAL_LAST_NONCE = max(candidate, _GLOBAL_LAST_NONCE + 1)
+        return _GLOBAL_LAST_NONCE
 
     async def _private_post(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any]:
         path = f"/api/v1/private/{endpoint}"
         url = f"{VNX_API_BASE}/private/{endpoint}"
         sorted_payload = sort_object_deep(payload)
         body = canonical_vnx_body(payload)
-        nonce = self._next_nonce()
-        headers = auth_headers(path, sorted_payload, nonce=nonce)
-        resp = await post_with_retry(self.client, url, content=body.encode("utf-8"), headers=headers)
-        if resp.status_code >= 400:
-            body_text = resp.text[:500]
-            if is_vnx_collision_error(body_text):
-                logger.warning(
-                    "VNX %s contention HTTP %s: %s",
-                    endpoint,
-                    resp.status_code,
-                    body_text[:200],
-                )
-                try:
-                    data = resp.json()
-                except Exception:
-                    data = {}
+        last_resp: dict[str, Any] = {"result": "error", "error": {"message": "unknown"}}
+        for attempt in range(collision_retry_max()):
+            nonce = self._next_nonce()
+            headers = auth_headers(path, sorted_payload, nonce=nonce)
+            resp = await post_with_retry(self.client, url, content=body.encode("utf-8"), headers=headers)
+            if resp.status_code >= 400:
+                body_text = resp.text[:500]
+                if is_vnx_collision_error(body_text):
+                    logger.warning(
+                        "VNX %s contention HTTP %s (attempt %s/%s): %s",
+                        endpoint,
+                        resp.status_code,
+                        attempt + 1,
+                        collision_retry_max(),
+                        body_text[:200],
+                    )
+                    try:
+                        data = resp.json()
+                    except Exception:
+                        data = {}
+                    err = data.get("error") or {}
+                    last_resp = {
+                        "result": "error",
+                        "error": {
+                            "code": err.get("code") or f"http_{resp.status_code}",
+                            "message": err.get("message") or body_text[:300],
+                        },
+                    }
+                    if attempt + 1 < collision_retry_max():
+                        await asyncio.sleep(collision_backoff_sec(attempt))
+                        continue
+                    return last_resp
+                logger.error("VNX %s HTTP %s: %s", endpoint, resp.status_code, resp.text[:200])
+                resp.raise_for_status()
+            data = resp.json()
+            if data.get("result") == "error":
                 err = data.get("error") or {}
-                return {
-                    "result": "error",
-                    "error": {
-                        "code": err.get("code") or f"http_{resp.status_code}",
-                        "message": err.get("message") or body_text[:300],
-                    },
-                }
-            logger.error("VNX %s HTTP %s: %s", endpoint, resp.status_code, resp.text[:200])
-            resp.raise_for_status()
-        data = resp.json()
-        if data.get("result") == "error":
-            err = data.get("error") or {}
-            msg = str(err.get("message") or err.get("code") or "")
-            if is_vnx_collision_error(msg):
-                logger.warning("VNX %s contention: %s", endpoint, msg[:200])
-        return data
+                msg = str(err.get("message") or err.get("code") or "")
+                if is_vnx_collision_error(msg):
+                    logger.warning(
+                        "VNX %s contention (attempt %s/%s): %s",
+                        endpoint,
+                        attempt + 1,
+                        collision_retry_max(),
+                        msg[:200],
+                    )
+                    last_resp = data
+                    if attempt + 1 < collision_retry_max():
+                        await asyncio.sleep(collision_backoff_sec(attempt))
+                        continue
+            return data
+        return last_resp
 
     async def _private_post_optional(self, endpoint: str, payload: dict[str, Any]) -> dict[str, Any] | None:
-        """Private POST that returns None on 403/404 (endpoint not enabled for this API key)."""
+        """Private POST that returns None on 403/404 or sustained shared-account contention."""
         path = f"/api/v1/private/{endpoint}"
         url = f"{VNX_API_BASE}/private/{endpoint}"
         sorted_payload = sort_object_deep(payload)
         body = canonical_vnx_body(payload)
-        nonce = self._next_nonce()
-        headers = auth_headers(path, sorted_payload, nonce=nonce)
-        resp = await post_with_retry(self.client, url, content=body.encode("utf-8"), headers=headers)
-        if resp.status_code in (403, 404):
-            logger.warning("VNX %s not available (HTTP %s)", endpoint, resp.status_code)
-            return None
-        if resp.status_code >= 400:
-            logger.warning("VNX %s HTTP %s: %s", endpoint, resp.status_code, resp.text[:200])
-            return None
-        return resp.json()
+        for attempt in range(collision_retry_max()):
+            nonce = self._next_nonce()
+            headers = auth_headers(path, sorted_payload, nonce=nonce)
+            resp = await post_with_retry(self.client, url, content=body.encode("utf-8"), headers=headers)
+            if resp.status_code in (403, 404):
+                logger.warning("VNX %s not available (HTTP %s)", endpoint, resp.status_code)
+                return None
+            if resp.status_code >= 400:
+                body_text = resp.text[:500]
+                if is_vnx_collision_error(body_text):
+                    logger.warning(
+                        "VNX %s contention HTTP %s (attempt %s/%s): %s",
+                        endpoint,
+                        resp.status_code,
+                        attempt + 1,
+                        collision_retry_max(),
+                        body_text[:200],
+                    )
+                    if attempt + 1 < collision_retry_max():
+                        await asyncio.sleep(collision_backoff_sec(attempt))
+                        continue
+                    return None
+                logger.error("VNX %s HTTP %s: %s", endpoint, resp.status_code, resp.text[:200])
+                resp.raise_for_status()
+            data = resp.json()
+            err = vnx_error_message(data)
+            if err and is_vnx_collision_error(err):
+                logger.warning(
+                    "VNX %s contention (attempt %s/%s): %s",
+                    endpoint,
+                    attempt + 1,
+                    collision_retry_max(),
+                    err,
+                )
+                if attempt + 1 < collision_retry_max():
+                    await asyncio.sleep(collision_backoff_sec(attempt))
+                    continue
+                return None
+            return data
+        return None
 
     async def account_balance(self) -> dict[str, Any]:
         return await self._private_post("accountBalance", {})
+
+    async def account_balance_resilient(self) -> dict[str, Any]:
+        """accountBalance with retry on shared-account invalid_nonce / contention."""
+        last_resp: dict[str, Any] = {"result": "error", "error": {"message": "unknown"}}
+        for attempt in range(collision_retry_max()):
+            resp = await self.account_balance()
+            err = vnx_error_message(resp)
+            if err is None:
+                return resp
+            last_resp = resp
+            if is_vnx_collision_error(err) and attempt + 1 < collision_retry_max():
+                logger.warning(
+                    "VNX accountBalance contention (attempt %s/%s): %s",
+                    attempt + 1,
+                    collision_retry_max(),
+                    err,
+                )
+                await asyncio.sleep(collision_backoff_sec(attempt))
+                continue
+            return resp
+        return last_resp
 
     async def deposit_address(self, asset: str, blockchain: str) -> dict[str, Any]:
         return await self._private_post("depositAddress", {"asset": asset, "blockchain": blockchain})

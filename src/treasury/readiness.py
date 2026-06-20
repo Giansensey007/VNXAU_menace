@@ -1,6 +1,7 @@
 """Production funding readiness vs config/production.yaml targets."""
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,8 @@ from src.execution.ethereum import ERC20_ABI, EthereumExecutor
 from src.execution.solana import SolanaExecutor
 from src.quotes.types import to_human
 from src.vnx.client import VnxClient
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -50,41 +53,62 @@ async def collect_balances() -> dict[str, float]:
     out: dict[str, float] = {}
 
     async with VnxClient() as vnx:
-        bal = await vnx.account_balance()
+        bal = await vnx.account_balance_resilient()
         out["platform_vnxau"] = vnx.vnxau_balance(bal)
         out["platform_usdc"] = vnx.usdc_balance(bal)
 
-    base = BaseExecutor(chains["base"])
-    out["base_usdc"] = float(to_human(base.balance_erc20(chains["base"].hub_token), 6))
-    out["base_native"] = float(base.w3.from_wei(base.w3.eth.get_balance(base.address), "ether"))
-    dec = token_decimals(token, "base")
-    out["base_vnxau"] = float(to_human(base.balance_erc20(token.chains["base"]), dec))
+    try:
+        base = BaseExecutor(chains["base"])
+        out["base_usdc"] = float(to_human(base.balance_erc20(chains["base"].hub_token), 6))
+        out["base_native"] = float(base.w3.from_wei(base.w3.eth.get_balance(base.address), "ether"))
+        dec = token_decimals(token, "base")
+        out["base_vnxau"] = float(to_human(base.balance_erc20(token.chains["base"]), dec))
+    except Exception as exc:
+        logger.warning("Base balance poll failed: %s", exc)
+        out.setdefault("base_usdc", 0.0)
+        out.setdefault("base_native", 0.0)
+        out.setdefault("base_vnxau", 0.0)
 
-    wrapped = wh.get("base_usdc_wormhole_from_eth")
-    if wrapped:
-        out["base_usdc_wrapped_eth"] = float(
-            to_human(
-                base.w3.eth.contract(address=base.w3.to_checksum_address(wrapped), abi=ERC20_ABI)
-                .functions.balanceOf(base.address)
-                .call(),
-                6,
+    try:
+        wrapped = wh.get("base_usdc_wormhole_from_eth")
+        if wrapped:
+            base = BaseExecutor(chains["base"])
+            out["base_usdc_wrapped_eth"] = float(
+                to_human(
+                    base.w3.eth.contract(address=base.w3.to_checksum_address(wrapped), abi=ERC20_ABI)
+                    .functions.balanceOf(base.address)
+                    .call(),
+                    6,
+                )
             )
+    except Exception as exc:
+        logger.warning("Base wrapped USDC balance failed: %s", exc)
+
+    try:
+        sol = SolanaExecutor(chains["solana"])
+        from spl.token.instructions import get_associated_token_address
+        from solders.pubkey import Pubkey
+
+        usdc_ata = get_associated_token_address(
+            sol.keypair.pubkey(), Pubkey.from_string(chains["solana"].hub_token)
         )
+        out["sol_usdc"] = sol.token_balance_ui(usdc_ata)
+        out["sol_native"] = sol.balance_lamports() / 1e9
+    except Exception as exc:
+        logger.warning("Solana balance poll failed: %s", exc)
+        out.setdefault("sol_usdc", 0.0)
+        out.setdefault("sol_native", 0.0)
 
-    sol = SolanaExecutor(chains["solana"])
-    from spl.token.instructions import get_associated_token_address
-    from solders.pubkey import Pubkey
-
-    usdc_ata = get_associated_token_address(
-        sol.keypair.pubkey(), Pubkey.from_string(chains["solana"].hub_token)
-    )
-    out["sol_usdc"] = sol.token_balance_ui(usdc_ata)
-    out["sol_native"] = sol.balance_lamports() / 1e9
-
-    eth = EthereumExecutor(chains["ethereum"])
-    out["eth_usdc"] = float(to_human(eth.balance_erc20(chains["ethereum"].hub_token), 6))
-    out["eth_usdt"] = float(to_human(eth.balance_erc20(wh["ethereum_usdt"]), 6))
-    out["eth_native"] = float(eth.w3.from_wei(eth.w3.eth.get_balance(eth.address), "ether"))
+    try:
+        eth = EthereumExecutor(chains["ethereum"])
+        out["eth_usdc"] = float(to_human(eth.balance_erc20(chains["ethereum"].hub_token), 6))
+        out["eth_usdt"] = float(to_human(eth.balance_erc20(wh["ethereum_usdt"]), 6))
+        out["eth_native"] = float(eth.w3.from_wei(eth.w3.eth.get_balance(eth.address), "ether"))
+    except Exception as exc:
+        logger.warning("ETH balance poll failed: %s", exc)
+        out.setdefault("eth_usdc", 0.0)
+        out.setdefault("eth_usdt", 0.0)
+        out.setdefault("eth_native", 0.0)
 
     return out
 

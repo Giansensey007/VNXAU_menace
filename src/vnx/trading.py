@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -12,7 +13,7 @@ from src.vnx.collision import collision_backoff_sec, collision_retry_max, is_vnx
 logger = logging.getLogger(__name__)
 
 VNXAU_USDC = "VNXAU/USDC"
-VNXAU_MIN_ORDER = 30.0
+VNXAU_MIN_ORDER = float(os.getenv("VNX_MIN_ORDER_VNXAU", "0.4"))
 DEFAULT_QTY_DECIMALS = 5
 DEFAULT_PRICE_DECIMALS = 6
 # From VNX tradingPairs — avoid calling tradingPairs immediately before quotes (rate-limit quirk)

@@ -93,6 +93,13 @@ ALL_ROUTES: tuple[RouteSpec, ...] = tuple(
 
 ALL_DIRECTIONS: tuple[str, ...] = tuple(r.direction for r in ALL_ROUTES)
 
+# Six directed arb legs on Base / Sol / VNX (excludes ETH hub settlement pair).
+CORE_ARB_DIRECTIONS: tuple[str, ...] = (
+    *BASE_SOL_DIRECTIONS,
+    *BASE_VNX_DIRECTIONS,
+    *VNX_SOL_DIRECTIONS,
+)
+
 
 def active_routes(cfg: BotConfig | None = None) -> tuple[RouteSpec, ...]:
     cfg = cfg or load_bot_config()

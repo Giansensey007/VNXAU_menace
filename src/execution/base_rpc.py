@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 BASE_RPC_FALLBACKS: tuple[str, ...] = (
     "https://base.llamarpc.com",
-    "https://mainnet.base.org",
     "https://base-mainnet.public.blastapi.io",
     "https://rpc.ankr.com/base",
     "https://1rpc.io/base",
+    "https://mainnet.base.org",
 )
 
 
