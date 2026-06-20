@@ -1,6 +1,34 @@
 # VNXAU Menace — production status
 
-**Chains:** Base + Ethereum + Solana (no Celo) · **Swaps:** KyberSwap (EVM) + Jupiter (Sol) · **Default:** `DRY_RUN=true`
+**Chains:** Base + Ethereum + Solana (no Celo) · **Swaps:** KyberSwap (EVM) + Jupiter (Sol) · **Default:** `DRY_RUN=true`  
+**Last commit:** `3d322bb` · **pytest:** 165 passed · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
+
+## 10-iteration sanity (`run_sanity_10.py`)
+
+Command: `DRY_RUN=true python scripts/run_sanity_10.py --iterations 10` (2026-06-20)
+
+| Iteration | Agents PASS |
+|-----------|-------------|
+| 1–10 | 8, 7, 7, 8, 7, 7, 7, 7, 7, 7 (last: **7/10**) |
+
+| Agent | Status | Notes |
+|-------|--------|-------|
+| SA-00 config-env | PASS | base↔sol active |
+| SA-01 Jupiter sell | FAIL* | quotes OK (~132 USDC/VNXAU); bounds `[1,2]` are VCHF-era |
+| SA-02 Kyber buy | FAIL* | quotes OK (~134 USDT/VNXAU); same stale bounds |
+| SA-03 VNX platform | PASS | assets + platform sell |
+| SA-04 deposit addrs | FAIL† | intermittent VNX nonce / empty BASE on iter 10 |
+| SA-05 Wormhole | PASS | 100→99.50 USDT |
+| SA-06 bridge dry-run | PASS‡ | success on last iter; nonce contention earlier |
+| SA-07 sim base→sol | PASS | quotes + sim complete; rate sanity band TBD for gold |
+| SA-08 sim sol→base | PASS | same |
+| SA-09 pytest | PASS | **165 passed** every iteration |
+
+\* SA-01/02 fail the agent check only; live quotes are healthy at ~$132/oz.  
+† SA-04 flaky under shared VNX key collision with other Menace bots.  
+‡ SA-06 passes when deposit address resolves.
+
+Results: `validation/sanity-10/summary.json`
 
 ## Route matrix (`verify-all`)
 
@@ -82,7 +110,7 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 2. Whitelist withdraw labels: `VNX_BASE_WITHDRAW_LABEL`, `VNX_SOL_WITHDRAW_LABEL`, `VNX_ETH_WITHDRAW_LABEL`
 3. Fund per `config/production.yaml`
 4. `DRY_RUN=true python -m pytest tests/ -q` → 165 passed
-5. `DRY_RUN=true python scripts/run_validation_matrix.py --iterations 10` → 230/230 PASS (SA-00..SA-21)
+5. `DRY_RUN=true python scripts/run_sanity_10.py --iterations 10` → 7/10 agents (last iter); pytest SA-09 green
 6. `python scripts/execute_route_matrix.py --step verify-all`
 7. Re-run until on-chain probes PASS
 8. Set `DRY_RUN=false` only after critical verify-all checks PASS
@@ -95,8 +123,8 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 | docker-compose + `/data` volume | OK |
 | DEPLOY.md | OK |
 | `.env.example` (RPC_BASE, RPC_ETHEREUM, Kyber) | OK |
-| pytest all pass | OK |
-| validation matrix 10× (SA-00..SA-21) | OK — 230/230 (2026-06-20) |
+| pytest all pass | OK — 165 (2026-06-20) |
+| sanity-10 × 10 iterations | **Partial** — 7/10 last iter; SA-01/02 bounds need VNXAU retune |
 | verify-all critical steps | OK |
 | In-flight + collision guards | OK |
 | Funded wallet for live probes | **Gap** — fund before `DRY_RUN=false` |
@@ -106,7 +134,7 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 ```bash
 cd environment/VNXAU_Menace
 DRY_RUN=true python -m pytest tests/ -q
-DRY_RUN=true python scripts/run_validation_matrix.py --iterations 10
+DRY_RUN=true python scripts/run_sanity_10.py --iterations 10
 DRY_RUN=true python scripts/execute_route_matrix.py --step verify-all
 python scripts/rebalance_for_test.py   # fund for 31 VNXAU matrix
 ```
