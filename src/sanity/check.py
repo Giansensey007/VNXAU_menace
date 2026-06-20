@@ -63,6 +63,8 @@ def sanity_check_config() -> tuple[bool, list[str]]:
             issues.append("eth↔vnx should stay off unless ENABLE_VNX_ARB_ROUTES")
         if "base_to_solana" not in active or "solana_to_base" not in active:
             issues.append("base↔solana routes must stay active")
+        if "ethereum_to_solana" not in active or "solana_to_ethereum" not in active:
+            issues.append("eth↔solana routes must stay active")
 
     if cfg.min_trade_vnxau <= 0 or cfg.max_trade_vnxau <= 0:
         issues.append("trade size bounds invalid")

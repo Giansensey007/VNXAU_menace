@@ -121,7 +121,7 @@ class TestChooseExecution:
 
 
 class TestActiveRoutes:
-    def test_default_eight_routes(self):
+    def test_default_eight_routes_when_arb_enabled(self):
         cfg = _cfg()
         routes = active_routes(cfg)
         assert len(routes) == 8
@@ -137,11 +137,13 @@ class TestActiveRoutes:
             "vnx_to_ethereum",
         }
 
-    def test_arb_disabled_drops_base_vnx(self):
+    def test_arb_disabled_drops_vnx_usdc_routes(self):
         cfg = _cfg(enable_vnx_arb_routes=False)
         assert len(active_routes(cfg)) == 4
-        assert "base_to_vnx" not in active_directions(cfg)
-        assert "ethereum_to_vnx" not in active_directions(cfg)
+        active = set(active_directions(cfg))
+        assert "base_to_vnx" not in active
+        assert "ethereum_to_vnx" not in active
+        assert active == {"base_to_solana", "solana_to_base", "solana_to_vnx", "vnx_to_solana"}
 
     def test_cctp_disabled(self):
         cfg = _cfg(enable_vnx_cctp_routes=False)
