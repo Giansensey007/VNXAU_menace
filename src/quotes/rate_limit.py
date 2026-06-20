@@ -36,8 +36,13 @@ def _backoff_sec(prov: str, attempt: int, status_code: int) -> float:
 def _is_retryable(resp: httpx.Response) -> bool:
     if resp.status_code in (429, 502, 503, 504):
         return True
-    if resp.status_code == 400 and "invalid_request_limit" in resp.text:
-        return True
+    if resp.status_code == 400:
+        body = resp.text.lower()
+        # VnxClient collision loop handles nonce contention — avoid stacked HTTP retries.
+        if "invalid_nonce" in body or "invalid nonce" in body:
+            return False
+        if "invalid_request_limit" in body:
+            return True
     if resp.status_code == 403 and "rate" in resp.text.lower():
         return True
     return False

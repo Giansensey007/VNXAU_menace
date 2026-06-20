@@ -47,7 +47,7 @@ async def test_bridge_dry_run(bot_cfg):
     with patch("src.vnx.bridge.VnxClient") as mock_cls:
         inst = AsyncMock()
         mock_cls.return_value.__aenter__.return_value = inst
-        inst.deposit_address.return_value = {"address": "0xdep123"}
+        inst.deposit_address_resilient.return_value = {"address": "0xdep123"}
         result = await bridge.bridge_vnxau(
             direction="base_to_solana",
             quantity=50.0,
@@ -95,7 +95,7 @@ async def test_bridge_withdraw_only_dry_run(bot_cfg):
         )
     assert result.success
     assert result.dry_run
-    inst.deposit_address.assert_not_awaited()
+    inst.deposit_address_resilient.assert_not_awaited()
     inst.withdraw.assert_not_awaited()
 
 
@@ -109,7 +109,7 @@ async def test_bridge_deposit_only_skips_withdraw(bot_cfg):
     with patch("src.vnx.bridge.VnxClient") as mock_cls:
         inst = AsyncMock()
         mock_cls.return_value.__aenter__.return_value = inst
-        inst.deposit_address.return_value = {"address": "0xdep123"}
+        inst.deposit_address_resilient.return_value = {"address": "0xdep123"}
         inst.vnxau_balance = MagicMock(side_effect=[0.0, 50.0])
         result = await VnxBridge(bot_cfg).bridge_vnxau(
             direction="solana_to_vnx",

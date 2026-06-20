@@ -209,7 +209,7 @@ class VnxBridge:
                     direction, withdraw_qty, "", dest_label, None, txids, False, True
                 )
 
-            dep = await vnx.deposit_address("VNXAU", source_blockchain)
+            dep = await vnx.deposit_address_resilient("VNXAU", source_blockchain)
             deposit_address = dep.get("address") or ""
             if not deposit_address:
                 return BridgeResult(

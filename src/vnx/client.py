@@ -25,6 +25,10 @@ VNX_API_BASE = os.getenv("VNX_API_BASE", "https://api.vnx.li/api/v1").rstrip("/"
 # Shared across VnxClient instances — GBP/VCHF/VNXAU bots share one VNX API key.
 _GLOBAL_LAST_NONCE = 0
 
+# Deposit addresses are stable per asset/blockchain — cache to cut API load during sanity sweeps.
+_DEPOSIT_ADDRESS_CACHE: dict[tuple[str, str], tuple[dict[str, Any], float]] = {}
+_DEPOSIT_CACHE_TTL_SEC = float(os.getenv("VNX_DEPOSIT_CACHE_TTL_SEC", "3600"))
+
 
 class VnxClient:
     def __init__(self, client: httpx.AsyncClient | None = None) -> None:
@@ -216,8 +220,59 @@ class VnxClient:
             return resp
         return last_resp
 
+    def _deposit_cache_key(self, asset: str, blockchain: str) -> tuple[str, str]:
+        return (asset.upper(), blockchain.upper())
+
+    def _cached_deposit_address(self, asset: str, blockchain: str) -> dict[str, Any] | None:
+        key = self._deposit_cache_key(asset, blockchain)
+        cached = _DEPOSIT_ADDRESS_CACHE.get(key)
+        if not cached:
+            return None
+        payload, ts = cached
+        if time.time() - ts > _DEPOSIT_CACHE_TTL_SEC:
+            _DEPOSIT_ADDRESS_CACHE.pop(key, None)
+            return None
+        return payload
+
+    def _store_deposit_cache(self, asset: str, blockchain: str, payload: dict[str, Any]) -> None:
+        if payload.get("result") == "error" or not payload.get("address"):
+            return
+        key = self._deposit_cache_key(asset, blockchain)
+        _DEPOSIT_ADDRESS_CACHE[key] = (payload, time.time())
+
     async def deposit_address(self, asset: str, blockchain: str) -> dict[str, Any]:
-        return await self._private_post("depositAddress", {"asset": asset, "blockchain": blockchain})
+        cached = self._cached_deposit_address(asset, blockchain)
+        if cached is not None:
+            return cached
+        result = await self._private_post("depositAddress", {"asset": asset, "blockchain": blockchain})
+        self._store_deposit_cache(asset, blockchain, result)
+        return result
+
+    async def deposit_address_resilient(self, asset: str, blockchain: str) -> dict[str, Any]:
+        """depositAddress with outer retry for shared-account invalid_nonce / request_limit."""
+        last: dict[str, Any] = {"result": "error", "error": {"message": "unknown"}}
+        max_outer = max(collision_retry_max(), 5)
+        key = self._deposit_cache_key(asset, blockchain)
+        for attempt in range(max_outer):
+            resp = await self.deposit_address(asset, blockchain)
+            err = vnx_error_message(resp)
+            addr = resp.get("address") or ""
+            if not err and addr:
+                return resp
+            last = resp
+            if err and is_vnx_collision_error(err) and attempt + 1 < max_outer:
+                _DEPOSIT_ADDRESS_CACHE.pop(key, None)
+                logger.warning(
+                    "VNX depositAddress resilient retry %s/%s (%s): %s",
+                    attempt + 1,
+                    max_outer,
+                    blockchain,
+                    err,
+                )
+                await asyncio.sleep(collision_backoff_sec(attempt) + 2.0)
+                continue
+            return resp
+        return last
 
     async def withdraw_addresses(self, blockchain: str | None = None) -> dict[str, Any]:
         payload: dict[str, Any] = {}

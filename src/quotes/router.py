@@ -139,8 +139,26 @@ async def sell_token_for_stable(
     if not token_addr:
         return None
     dec = token_decimals(token, chain_key)
-    return await quote_best(
+    result = await quote_best(
         client, chain, token_addr, chain.hub_token, amount_in, dec, chain.hub_decimals, token.symbol
+    )
+    if result or chain_key != "ethereum":
+        return result
+    pq = await vnx.quote_sell_token_for_usdc(
+        client, token.symbol, amount_in, dec, chain.hub_decimals
+    )
+    if not pq.ok:
+        return None
+    return QuoteResult(
+        provider=f"{pq.provider}-eth-fallback",
+        amount_in=pq.amount_in,
+        amount_out=pq.amount_out,
+        route_dexs=pq.route_dexs,
+        all_providers=[pq],
+        token_in=token_addr,
+        token_out=chain.hub_token,
+        chain_key=chain_key,
+        hub_stable=chain.hub_stable,
     )
 
 
@@ -155,6 +173,24 @@ async def buy_token_with_stable(
     if not token_addr:
         return None
     dec = token_decimals(token, chain_key)
-    return await quote_best(
+    result = await quote_best(
         client, chain, chain.hub_token, token_addr, stable_amount, chain.hub_decimals, dec, token.symbol
+    )
+    if result or chain_key != "ethereum":
+        return result
+    pq = await vnx.quote_buy_token_with_usdc(
+        client, token.symbol, stable_amount, dec, chain.hub_decimals
+    )
+    if not pq.ok:
+        return None
+    return QuoteResult(
+        provider=f"{pq.provider}-eth-fallback",
+        amount_in=pq.amount_in,
+        amount_out=pq.amount_out,
+        route_dexs=pq.route_dexs,
+        all_providers=[pq],
+        token_in=chain.hub_token,
+        token_out=token_addr,
+        chain_key=chain_key,
+        hub_stable=chain.hub_stable,
     )
