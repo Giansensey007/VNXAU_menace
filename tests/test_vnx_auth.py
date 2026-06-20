@@ -39,4 +39,4 @@ def test_add_order_body_matches_signature():
 def test_vnx_min_order():
     from src.quotes.vnx import VNX_MIN_ORDER
 
-    assert VNX_MIN_ORDER["VNXAU"] == 0.4
+    assert VNX_MIN_ORDER["VNXAU"] == 30.0

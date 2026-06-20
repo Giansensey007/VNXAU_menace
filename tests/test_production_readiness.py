@@ -8,9 +8,9 @@ from src.treasury.readiness import FundingTarget, format_report, production_targ
 
 def test_production_targets_loaded():
     t = production_targets("production")
-    assert t["platform_vnxau"] == 5
-    assert t["base_usdc"] == 750
-    assert t["sol_usdc"] == 750
+    assert t["platform_vnxau"] == 200
+    assert t["base_usdc"] == 250
+    assert t["sol_usdc"] == 250
 
 
 def test_funding_target_gap():

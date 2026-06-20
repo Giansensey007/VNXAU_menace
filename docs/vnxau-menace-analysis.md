@@ -1,68 +1,159 @@
-# VNXAU Menace — analysis
+# VNXAU Menace — deep analysis
 
-Platform-centric gold arb bot: **VNXAU/XAU lives on VNX**; Base and Solana hold USDC hub stables only (`platform_vnxau_only=true`).
+Adapted from **GBP Menace** for **VNXAU** platform-centric arbitrage on **Base + Ethereum + Solana** (no Celo).  
+Repo: https://github.com/Giansensey007/VNXAU_menace
 
-## vs VCHF Menace
+---
 
-| Aspect | VCHF | VNXAU |
-|--------|------|-------|
-| Asset | VCHF | VNXAU (1 tokenized fine troy oz) |
-| Primary L2 | Celo | **Base** |
-| Hub stable | Celo USDT | **Base USDC** |
-| Platform min order | 30 VCHF | **0.4 VNXAU** |
-| Deploy sizing | 200–2000 VCHF | **0.5–5 VNXAU** |
-| CELO routes | yes | **removed** |
-| In-flight ledger | `src/treasury/in_flight.py` | **ported** (Base/SOL baselines) |
-| Collision retry | `src/vnx/collision.py` | **present** (shared VNX account) |
+## 1. Route map (8 directions)
 
-## Route logic (mirror VCHF)
+| Direction | Buy leg | Sell leg | Bridge / hub |
+|-----------|---------|----------|--------------|
+| `base_to_solana` | Base USDC → VNXAU | Sol VNXAU → USDC | Wormhole USDC |
+| `solana_to_base` | Sol USDC → VNXAU | Base VNXAU → USDC | Wormhole USDC |
+| `base_to_vnx` | Base USDC → VNXAU | VNX sell VNXAU | deposit |
+| `vnx_to_base` | VNX buy VNXAU | Base VNXAU → USDC | withdraw |
+| `solana_to_vnx` | Sol USDC → VNXAU | VNX sell VNXAU | deposit + CCTP return path |
+| `vnx_to_solana` | VNX buy VNXAU | Sol VNXAU → USDC | withdraw + CCTP return path |
+| `ethereum_to_vnx` | ETH USDC → VNXAU (Kyber) | VNX sell VNXAU | deposit |
+| `vnx_to_ethereum` | VNX buy VNXAU | ETH VNXAU → USDC (Kyber) | withdraw |
+
+Route groups: `base_sol` (always on), `base_vnx` + `eth_vnx` (`ENABLE_VNX_ARB_ROUTES`), `vnx_sol` (`ENABLE_VNX_CCTP_ROUTES`).
+
+---
+
+## 2. VNXAU-specific VNX minimums (API)
+
+Fetched from VNX `get_trading_pairs()` (live API, 2026-06-20):
+
+| Pair | Status | `min_order_size` | Notes |
+|------|--------|------------------|-------|
+| **VNXAU/USDC** | online | **30** | Used by bot (`VNXAU_MIN_ORDER`, route test @ 31) |
+| VNXAU/ETH | online | 30 | — |
+| VNXAU/BTC | online | 50 | — |
+| VNXAU/CHF | online | 0.1 | Fiat rail |
+| VGBP/USDC (GBP ref) | online | 40 | GBP uses 40; VNXAU is 30 |
+
+On-chain deposit minimums:
+
+| Chain | Asset | Min cumulative |
+|-------|-------|----------------|
+| BASE | VNXAU | 5 |
+| SOL | VNXAU | 5 |
+| ETH | USDC | 20 |
+
+Code constants: `src/vnx/trading.py` → `VNXAU_MIN_ORDER = 30.0`; `src/quotes/vnx.py` → `VNX_MIN_ORDER["VNXAU"] = 30.0`.
+
+---
+
+## 3. Token addresses
+
+| Chain | VNXAU mint / contract |
+|-------|----------------------|
+| Base | `0xac3fe22294beaed9d1fd752323a6d06d12ff3098` |
+| Ethereum | `0x6d57B2E05F26C26b549231c866bdd39779e4a488` |
+| Solana | `9TPL8droGJ7jThsq4momaoz6uhTcvX2SeMqipoPmNa8R` |
+| VNX Platform | `VNXAU` (symbol) |
+
+Base hub stable: USDC (`0x833589fCD6eDb6E08f4c7C32D4F71b54bda02913`).  
+EVM swaps: **KyberSwap aggregator** first (`USE_KYBER_SWAP=true`), Uniswap V3 fallback.
+
+---
+
+## 4. Production route — Base → Sol closed loop
+
+**Platform VNXAU → withdraw BASE → sell VNXAU→USDC → bridge to Solana → buy VNXAU with USDC → deposit VNXAU to platform.**
+
+| # | Action | Implementation |
+|---|--------|----------------|
+| 1 | Withdraw VNXAU from VNX to Base hot wallet | `VnxBridge.bridge_vnxau(..., withdraw_only=True)` in `vnx_to_base` |
+| 2 | Swap VNXAU → USDC on Base | KyberSwap / Uniswap via `BaseExecutor` |
+| 3 | Bridge USDC Base → Solana | Wormhole Portal |
+| 4 | Acquire VNXAU on Solana | Jupiter: USDC → VNXAU |
+| 5 | Deposit VNXAU to VNX | `solana_to_vnx` — SPL transfer + VNX deposit poll |
+
+Treasury: `platform_vnxau_only=true`, `consolidate_vnxau_to_platform()`, `close_loop_always_return=true`.
+
+---
+
+## 5. Test results
+
+### Pytest
 
 ```
-base_to_vnx     ← celo_to_vnx
-vnx_to_base     ← vnx_to_celo
-base_to_solana  ← celo_to_solana
-solana_to_base  ← solana_to_celo
-solana_to_vnx   ← unchanged (CCTP)
-vnx_to_solana   ← unchanged (+ CCTP USDC return)
+DRY_RUN=true python -m pytest tests/ -q
+165 passed
 ```
 
-Ethereum remains a **wormhole/CCTP hub** (USDC/USDT legs), not a seventh directed arb pair.
+### verify-all (with production `.env`, DRY_RUN=true)
 
-## VNX API research
+| Branch | Result |
+|--------|--------|
+| cctp_claim | PASS |
+| wormhole_claim | PASS |
+| wormhole_preflight | PASS |
+| route_simulations (8 dirs @ 31 VNXAU) | PASS |
+| base_swaps | PASS |
+| sol_swaps | SKIP (low Sol USDC) |
+| platform_probe | SKIP (low platform USDC) |
+| eth_to_vnx / vnx_to_eth | SKIP (below 20 USDC VNX min) |
+| cctp_sol_eth / cctp_eth_sol | SKIP (insufficient hub USDC) |
 
-- **Assets:** VNXAU active on `BASE`, `SOL`, `ETH` (not CELO)
-- **Pair:** `VNXAU/USDC` on platform quotes API
-- **Min order:** 0.4 VNXAU (`VNX_MIN_ORDER` in `src/quotes/vnx.py`)
-- **Withdraw env:** `VNX_BASE_BLOCKCHAIN=BASE`, `VNX_BASE_WITHDRAW_LABEL=<whitelisted label>`
+Critical preflight branches (`cctp_claim`, `wormhole_claim`, `wormhole_preflight`, `route_simulations`) **all PASS**.
 
-## Bridge stack
+---
 
-- **Base ↔ Sol:** Wormhole Portal USDC (chain id 30)
-- **Sol ↔ VNX:** Circle CCTP v2 (Sol USDC → ETH USDC → platform)
-- **Base ↔ VNX:** direct VNXAU on-chain deposit + platform withdraw
+## 6. Production guards (ported from GBP/VCHF)
 
-## In-flight / collision (ported from VCHF)
+| Guard | Implementation |
+|-------|----------------|
+| Rate limits | `API_SYNC_*_MS`, `SOL_RPC_MIN_INTERVAL_MS`, `sync_throttle` |
+| VNX collision | `VNX_COLLISION_RETRY_MAX`, backoff in bridge + trading |
+| In-flight ledger | `src/treasury/in_flight.py` — duplicate withdraw guard, reconcile |
+| Bridge queues | CCTP + Wormhole log burns to in-flight ledger |
 
-- **`src/treasury/in_flight.py`** — persistent ledger for pending VNX withdraws/deposits and CCTP/Wormhole burns; reconciles against on-chain Base/SOL balances and bridge queues
-- **`src/vnx/collision.py`** — classifies shared-account contention errors; wired in `client.py`, `bridge.py`, `trading.py`, `usdc_bridge.py`, `main.py`
-- **Duplicate withdraw guard** — `VnxBridge` skips a second withdraw to the same chain while one is pending
+---
 
-## Deploy (Railway Docker)
+## 7. Funding thresholds
 
-Copy `.env.example` to Railway env. Critical RPC/Kyber vars:
+### Production deploy (`config/production.yaml`)
 
-- `RPC_BASE`, `RPC_ETHEREUM`, `RPC_SOLANA`
-- `USE_KYBER_SWAP=true`, `KYBER_API_URL`, `KYBER_CLIENT_ID`, `BASE_SWAP_ROUTER`
+| Location | Minimum |
+|----------|---------|
+| Platform VNXAU | 200 |
+| Platform USDC | 250 |
+| Base USDT | 250 |
+| Sol USDC | 250 |
+| ETH USDC | 50 |
+| ETH USDT | 50 |
+| ETH native | 0.015 |
+| BASE native | 0.5 |
+| SOL native | 0.05 |
 
-Full steps: `DEPLOY.md`.
+### Route test (31 VNXAU matrix)
 
-## Known gaps
+| Location | Minimum |
+|----------|---------|
+| Platform VNXAU | 32 |
+| Platform USDC | 45 |
+| Base USDT | 45 |
+| Sol USDC | 45 |
 
-1. On-chain Uniswap V3 pool address for VNXAU/USDC on Base not pinned — quotes use fee-tier probe + Kyber fallback in simulator paths.
-2. VNX cumulative deposit minimum for VNXAU on BASE/SOL not documented in public API; env default `0.01` — validate with a small live deposit before production sizing.
-3. `verify-all` hits VNX `invalid_nonce` when sibling bots share the same API key concurrently.
-4. Public Base/Sol RPC rate limits (429) — use paid RPC for matrix runs.
+---
 
-## Tests
+## 8. Railway readiness: 9/10
 
-156+ unit tests (`DRY_RUN=true`), including `tests/test_in_flight.py` and `tests/test_vnx_collision.py`. Route quotes work at zero on-chain VNXAU balance when platform/VNX quote APIs respond.
+- Dockerfile, docker-compose, DEPLOY.md: complete
+- `.env.example`: `RPC_BASE`, `RPC_ETHEREUM`, `KYBER_*`, collision + in-flight vars
+- **Gap:** hot wallet under-funded for live on-chain probes
+
+---
+
+## 9. Workspace wiring
+
+| Item | Path |
+|------|------|
+| Local bot | `environment/VNXAU_Menace/` |
+| Nested git | `environment/VNXAU_Menace/.git` |
+| GitHub | https://github.com/Giansensey007/VNXAU_menace |
+| Registry | `environment/REGISTRY.md` |
