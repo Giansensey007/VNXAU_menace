@@ -386,6 +386,16 @@ class WormholePortalBridge:
             return WormholeBridgeResult(
                 direction, amount_usdt, None, None, False, False, "base transferTokens to ETH failed"
             )
+        if not self._initiate_receipt_ok(w3, tx_hash):
+            return WormholeBridgeResult(
+                direction,
+                amount_usdt,
+                tx_hash,
+                None,
+                False,
+                False,
+                "Base Wormhole initiate missing LogMessagePublished",
+            )
 
         logger.info("Wormhole initiated on Base: %s (redeem on Ethereum via VAA)", tx_hash)
         return WormholeBridgeResult(direction, amount_usdt, tx_hash, None, False, True)

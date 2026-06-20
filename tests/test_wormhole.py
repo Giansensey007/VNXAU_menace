@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -67,6 +67,27 @@ async def test_wormhole_dry_run_base_to_sol(monkeypatch):
     br = await wh.bridge_usdt_base_to_solana(10.0, "Gwacy3nVZdRf8FrmXf9JcTtK7ezGbu5zo6bFYuxSuMad")
     assert br.success
     assert br.dry_run
+
+
+@pytest.mark.asyncio
+async def test_wormhole_base_to_eth_rejects_bad_receipt(monkeypatch):
+    """Base→ETH initiate must emit LogMessagePublished (same guard as Base→Sol)."""
+    monkeypatch.setenv("DRY_RUN", "false")
+    base = load_chains()["base"]
+    wh = WormholePortalBridge(base)
+    mock_exec = MagicMock()
+    mock_exec.account.address = "0x13D813Ca52577c55620091DFd3272cf2cdEae8F0"
+    mock_exec._tx_base.return_value = {}
+    mock_exec._build_and_send.return_value = "0xdeadbeef"
+    mock_exec.w3 = MagicMock()
+
+    with patch.object(wh, "_initiate_receipt_ok", return_value=False):
+        with patch("src.execution.token_approvals.check_allowance", return_value=None):
+            br = await wh.bridge_usdt_base_to_ethereum(
+                10.0, "0x13D813Ca52577c55620091DFd3272cf2cdEae8F0", mock_exec
+            )
+    assert not br.success
+    assert "LogMessagePublished" in (br.error or "")
 
 
 @pytest.mark.asyncio

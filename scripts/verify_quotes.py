@@ -35,12 +35,14 @@ async def main() -> None:
     token = load_tokens()["VNXAU"]
     base = chains["base"]
     sol = chains["solana"]
+    eth = chains["ethereum"]
 
     async with build_client() as client:
         for size in sizes:
             print(f"\n=== Size {size} VNXAU ===")
             sol_dec = token_decimals(token, "solana")
             base_dec = token_decimals(token, "base")
+            eth_dec = token_decimals(token, "ethereum")
 
             vnxau_amt = from_human(size, sol_dec)
             sell_sol = await sell_token_for_stable(client, sol, token, "solana", vnxau_amt)
@@ -51,11 +53,11 @@ async def main() -> None:
             else:
                 print("  Sol sell: FAILED")
 
-            usdt_probe = from_human(size * 135.0, base.hub_decimals)
-            buy_base = await buy_token_with_stable(client, base, token, "base", usdt_probe)
+            usdc_probe = from_human(size * 135.0, base.hub_decimals)
+            buy_base = await buy_token_with_stable(client, base, token, "base", usdc_probe)
             if buy_base:
                 vnxau = float(to_human(buy_base.amount_out, base_dec))
-                usdc_in = float(to_human(usdt_probe, base.hub_decimals))
+                usdc_in = float(to_human(usdc_probe, base.hub_decimals))
                 rate = usdc_in / vnxau if vnxau else 0
                 print(
                     f"  Base buy: {usdc_in:.2f} USDC -> {vnxau:.4f} VNXAU "
@@ -63,6 +65,19 @@ async def main() -> None:
                 )
             else:
                 print("  Base buy: FAILED")
+
+            eth_probe = from_human(size * 135.0, eth.hub_decimals)
+            buy_eth = await buy_token_with_stable(client, eth, token, "ethereum", eth_probe)
+            if buy_eth:
+                vnxau = float(to_human(buy_eth.amount_out, eth_dec))
+                usdc_in = float(to_human(eth_probe, eth.hub_decimals))
+                rate = usdc_in / vnxau if vnxau else 0
+                print(
+                    f"  ETH buy: {usdc_in:.2f} USDC -> {vnxau:.4f} VNXAU "
+                    f"({rate:.2f} USDC/VNXAU) via {buy_eth.provider}"
+                )
+            else:
+                print("  ETH buy: FAILED")
 
 
 if __name__ == "__main__":
