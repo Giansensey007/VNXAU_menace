@@ -1,7 +1,23 @@
 # VNXAU Menace — production status
 
 **Chains:** Base + Ethereum + Solana (no Celo) · **Swaps:** KyberSwap (EVM) + Jupiter (Sol) · **Default:** `DRY_RUN=true`  
-**Last commit:** `b9968a4` · **pytest:** 215 passed · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
+**Routes:** 8 canonical (Base + ETH + Sol via VNX) · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
+
+## Round 4 validation matrix (2026-06-20)
+
+Post `b9968a4` 8-route audit (dropped eth↔sol executor; hardened wormhole preflight).
+
+| Check | Command | Result |
+|-------|---------|--------|
+| pytest | `DRY_RUN=true python -m pytest tests/ -q` | **215 passed** |
+| validation matrix | `DRY_RUN=true python scripts/run_validation_matrix.py --iterations 10` | **230/230 PASS** (10 × 23 agents incl. SA-00) |
+
+| Iteration | SA-00 … SA-21 |
+|-----------|---------------|
+| I1–I10 | 23/23 PASS each |
+
+All 8 directions verified in SA-05 (`routes-eight-directions`) and SA-15 (`scanner-all-routes`) every iteration.  
+Results: `validation/iteration-{1..10}/`
 
 ## 10-iteration sanity (`run_sanity_10.py`)
 
@@ -90,6 +106,8 @@ Negative net at test size is expected (fees + spread); deploy sizing 200–2000 
 |-------|-------|
 | Base | `0xac3fe22294beaed9d1fd752323a6d06d12ff3098` |
 | Ethereum | `0x6d57B2E05F26C26b549231c866bdd39779e4a488` |
+| Solana | `9TPL8droGJ7jThsq4momaoz6uhTcvX2SeMqipoPmNa8R` |
+| VNX Platform | `VNXAU` |
 
 **KyberSwap ETH mainnet sample** (2026-06-20, `KYBER_EXCLUDED_SOURCES` limit-order filter on):
 
@@ -99,8 +117,6 @@ Negative net at test size is expected (fees + spread); deploy sizing 200–2000 
 | Sell | 1 VNXAU | 7.21 USDC | ~7 (rejected by sanity band) | uniswap-v4, uniswapv3 |
 
 Sell-side thin-pool quotes below `vnxau_usd_min` (80) are dropped in `src/quotes/router.py`.
-| Solana | `9TPL8droGJ7jThsq4momaoz6uhTcvX2SeMqipoPmNa8R` |
-| VNX Platform | `VNXAU` |
 
 ### Route test minimum (31 VNXAU matrix)
 
@@ -127,7 +143,7 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 1. Copy `.env.example` → `.env` (same BASE/SOL keys as GBP; separate VNX keys optional)
 2. Whitelist withdraw labels: `VNX_BASE_WITHDRAW_LABEL`, `VNX_SOL_WITHDRAW_LABEL`, `VNX_ETH_WITHDRAW_LABEL`
 3. Fund per `config/production.yaml`
-4. `DRY_RUN=true python -m pytest tests/ -q` → 214 passed
+4. `DRY_RUN=true python -m pytest tests/ -q` → 215 passed
 5. `DRY_RUN=true python scripts/run_sanity_10.py` → SA-01/02 PASS; SA-04/06 may flake under shared VNX key
 6. `python scripts/execute_route_matrix.py --step verify-all`
 7. Re-run until on-chain probes PASS
@@ -141,7 +157,8 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 | docker-compose + `/data` volume | OK |
 | DEPLOY.md | OK |
 | `.env.example` (RPC_BASE, RPC_ETHEREUM, Kyber) | OK |
-| pytest all pass | OK — 214 (2026-06-20) |
+| pytest all pass | OK — 215 (round 4, 2026-06-20) |
+| validation matrix 10× | OK — 230/230 (round 4) |
 | sanity-10 (single run) | **Partial** — 8/10 agents; SA-01/02 PASS; SA-04/06 nonce flake |
 | verify-all critical steps | OK |
 | In-flight + collision guards | OK |
@@ -153,6 +170,7 @@ Treasury `close_loop_always_return` + `consolidate_vnxau_to_platform()` sweep id
 cd environment/VNXAU_Menace
 DRY_RUN=true python -m pytest tests/ -q
 DRY_RUN=true python scripts/run_sanity_10.py --iterations 10
+DRY_RUN=true python scripts/run_validation_matrix.py --iterations 10
 DRY_RUN=true python scripts/execute_route_matrix.py --step verify-all
 python scripts/rebalance_for_test.py   # fund for 31 VNXAU matrix
 ```
