@@ -29,6 +29,8 @@
 \definecolor{vnxstroke}{RGB}{0,107,98}
 \definecolor{callout}{RGB}{255,243,224}
 \definecolor{calloutstroke}{RGB}{230,126,34}
+\definecolor{warnbg}{RGB}{254,235,235}
+\definecolor{warnstroke}{RGB}{197,48,48}
 \newcommand{\statlabel}[1]{{\fontsize{6}{7.5}\selectfont\bfseries\textcolor{ink!55}{\MakeUppercase{#1}}}}
 \tikzset{
   hub_base/.style={draw=basestroke,thick,fill=basefill,rounded corners=2pt,minimum height=6.8mm,minimum width=12.5mm,align=center,font=\fontsize{6.2}{7.5}\selectfont\bfseries,inner sep=1pt},
@@ -72,41 +74,41 @@
 \vspace{1mm}
 \noindent\begin{tikzpicture}[x=1mm,y=-1mm]
 \node[grp] at (0,7) {Base $\leftrightarrow$ Solana};
-\node[rowlbl,text=primary] at (-2,14) {base$\rightarrow$sol};
-\node[hub_base,anchor=west] (r0_0) at (\FxA,14) {Base\\USDC};
-\node[act,anchor=west] (r0_1) at (\FxB,14) {Kyber\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
-\draw[arr] (r0_0)--(r0_1);
-\node[hub_vnx,anchor=west] (r0_2) at (\FxC,14) {VNX\\bridge\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r0_1)--(r0_2);
-\node[act,anchor=west] (r0_3) at (\FxD,14) {Jupiter\\VNXAU$\rightarrow$USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Jupiter}}};
-\draw[arr] (r0_2)--(r0_3);
-\node[hub_sol,anchor=west] (r0_4) at (\FxE,14) {Sol\\USDC};
-\draw[arr] (r0_3)--(r0_4);
-\node[recon,anchor=west] (r0_5) at (\FxF,14) {Wormhole\\USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{WH}}};
-\draw[arr] (r0_4)--(r0_5);
-\node[rowlbl,text=primary] at (-2,21) {sol$\rightarrow$base};
-\node[hub_sol,anchor=west] (r1_0) at (\FxA,21) {Sol\\USDC};
-\node[act,anchor=west] (r1_1) at (\FxB,21) {Jupiter\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Jupiter}}};
-\draw[arr] (r1_0)--(r1_1);
-\node[hub_vnx,anchor=west] (r1_2) at (\FxC,21) {VNX\\bridge\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r1_1)--(r1_2);
-\node[act,anchor=west] (r1_3) at (\FxD,21) {Kyber\\VNXAU$\rightarrow$USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
-\draw[arr] (r1_2)--(r1_3);
-\node[hub_base,anchor=west] (r1_4) at (\FxE,21) {Base\\USDC};
-\draw[arr] (r1_3)--(r1_4);
-\node[recon,anchor=west] (r1_5) at (\FxF,21) {Wormhole\\USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{WH}}};
-\draw[arr] (r1_4)--(r1_5);
+\node[rowlbl,text=ink!40] at (-2,14) {base$\rightarrow$sol};
+\node[hub_base, opacity=0.42,anchor=west] (r0_0) at (\FxA,14) {Base\\USDC};
+\node[act, opacity=0.42,anchor=west] (r0_1) at (\FxB,14) {Kyber\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
+\draw[arr, opacity=0.42] (r0_0)--(r0_1);
+\node[hub_vnx, opacity=0.42,anchor=west] (r0_2) at (\FxC,14) {VNX\\bridge\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r0_1)--(r0_2);
+\node[act, opacity=0.42,anchor=west] (r0_3) at (\FxD,14) {Jupiter\\VNXAU$\rightarrow$USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Jupiter}}};
+\draw[arr, opacity=0.42] (r0_2)--(r0_3);
+\node[hub_sol, opacity=0.42,anchor=west] (r0_4) at (\FxE,14) {Sol\\USDC};
+\draw[arr, opacity=0.42] (r0_3)--(r0_4);
+\node[recon, opacity=0.42,anchor=west] (r0_5) at (\FxF,14) {Wormhole\\USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{WH}}};
+\draw[arr, opacity=0.42] (r0_4)--(r0_5);
+\node[rowlbl,text=ink!40] at (-2,21) {sol$\rightarrow$base};
+\node[hub_sol, opacity=0.42,anchor=west] (r1_0) at (\FxA,21) {Sol\\USDC};
+\node[act, opacity=0.42,anchor=west] (r1_1) at (\FxB,21) {Jupiter\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Jupiter}}};
+\draw[arr, opacity=0.42] (r1_0)--(r1_1);
+\node[hub_vnx, opacity=0.42,anchor=west] (r1_2) at (\FxC,21) {VNX\\bridge\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r1_1)--(r1_2);
+\node[act, opacity=0.42,anchor=west] (r1_3) at (\FxD,21) {Kyber\\VNXAU$\rightarrow$USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
+\draw[arr, opacity=0.42] (r1_2)--(r1_3);
+\node[hub_base, opacity=0.42,anchor=west] (r1_4) at (\FxE,21) {Base\\USDC};
+\draw[arr, opacity=0.42] (r1_3)--(r1_4);
+\node[recon, opacity=0.42,anchor=west] (r1_5) at (\FxF,21) {Wormhole\\USDC\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{WH}}};
+\draw[arr, opacity=0.42] (r1_4)--(r1_5);
 \node[grp] at (0,35) {Base $\leftrightarrow$ VNX platform};
-\node[rowlbl,text=primary] at (-2,42) {base$\rightarrow$vnx};
-\node[hub_base,anchor=west] (r2_0) at (\FxA,42) {Base\\USDC};
-\node[act,anchor=west] (r2_1) at (\FxB,42) {Kyber\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
-\draw[arr] (r2_0)--(r2_1);
-\node[hub_vnx,anchor=west] (r2_2) at (\FxC,42) {VNX\\deposit\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r2_1)--(r2_2);
-\node[act,anchor=west] (r2_3) at (\FxD,42) {Platform\\sell VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r2_2)--(r2_3);
-\node[hub_vnx,anchor=west] (r2_4) at (\FxE,42) {VNX\\USDC};
-\draw[arr] (r2_3)--(r2_4);
+\node[rowlbl,text=ink!40] at (-2,42) {base$\rightarrow$vnx};
+\node[hub_base, opacity=0.42,anchor=west] (r2_0) at (\FxA,42) {Base\\USDC};
+\node[act, opacity=0.42,anchor=west] (r2_1) at (\FxB,42) {Kyber\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
+\draw[arr, opacity=0.42] (r2_0)--(r2_1);
+\node[hub_vnx, opacity=0.42,anchor=west] (r2_2) at (\FxC,42) {VNX\\deposit\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r2_1)--(r2_2);
+\node[act, opacity=0.42,anchor=west] (r2_3) at (\FxD,42) {Platform\\sell VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r2_2)--(r2_3);
+\node[hub_vnx, opacity=0.42,anchor=west] (r2_4) at (\FxE,42) {VNX\\USDC};
+\draw[arr, opacity=0.42] (r2_3)--(r2_4);
 \node[rowlbl,text=primary] at (-2,49) {vnx$\rightarrow$base};
 \node[hub_vnx,anchor=west] (r3_0) at (\FxA,49) {VNX\\USDC};
 \node[act,anchor=west] (r3_1) at (\FxB,49) {Platform\\buy VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
@@ -118,16 +120,16 @@
 \node[hub_base,anchor=west] (r3_4) at (\FxE,49) {Base\\USDC};
 \draw[arr] (r3_3)--(r3_4);
 \node[grp] at (0,63) {Ethereum $\leftrightarrow$ VNX platform};
-\node[rowlbl,text=primary] at (-2,70) {eth$\rightarrow$vnx};
-\node[hub_eth,anchor=west] (r4_0) at (\FxA,70) {ETH\\USDC};
-\node[act,anchor=west] (r4_1) at (\FxB,70) {Kyber\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
-\draw[arr] (r4_0)--(r4_1);
-\node[hub_vnx,anchor=west] (r4_2) at (\FxC,70) {VNX\\deposit\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r4_1)--(r4_2);
-\node[act,anchor=west] (r4_3) at (\FxD,70) {Platform\\sell VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r4_2)--(r4_3);
-\node[hub_vnx,anchor=west] (r4_4) at (\FxE,70) {VNX\\USDC};
-\draw[arr] (r4_3)--(r4_4);
+\node[rowlbl,text=ink!40] at (-2,70) {eth$\rightarrow$vnx};
+\node[hub_eth, opacity=0.42,anchor=west] (r4_0) at (\FxA,70) {ETH\\USDC};
+\node[act, opacity=0.42,anchor=west] (r4_1) at (\FxB,70) {Kyber\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Kyber}}};
+\draw[arr, opacity=0.42] (r4_0)--(r4_1);
+\node[hub_vnx, opacity=0.42,anchor=west] (r4_2) at (\FxC,70) {VNX\\deposit\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r4_1)--(r4_2);
+\node[act, opacity=0.42,anchor=west] (r4_3) at (\FxD,70) {Platform\\sell VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r4_2)--(r4_3);
+\node[hub_vnx, opacity=0.42,anchor=west] (r4_4) at (\FxE,70) {VNX\\USDC};
+\draw[arr, opacity=0.42] (r4_3)--(r4_4);
 \node[rowlbl,text=primary] at (-2,77) {vnx$\rightarrow$eth};
 \node[hub_vnx,anchor=west] (r5_0) at (\FxA,77) {VNX\\USDC};
 \node[act,anchor=west] (r5_1) at (\FxB,77) {Platform\\buy VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
@@ -139,18 +141,18 @@
 \node[hub_eth,anchor=west] (r5_4) at (\FxE,77) {ETH\\USDC};
 \draw[arr] (r5_3)--(r5_4);
 \node[grp] at (0,91) {Solana $\leftrightarrow$ VNX (+ CCTP)};
-\node[rowlbl,text=primary] at (-2,98) {sol$\rightarrow$vnx};
-\node[hub_sol,anchor=west] (r6_0) at (\FxA,98) {Sol\\USDC};
-\node[act,anchor=west] (r6_1) at (\FxB,98) {Jupiter\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Jupiter}}};
-\draw[arr] (r6_0)--(r6_1);
-\node[hub_vnx,anchor=west] (r6_2) at (\FxC,98) {VNX\\deposit\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r6_1)--(r6_2);
-\node[act,anchor=west] (r6_3) at (\FxD,98) {Platform\\sell VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
-\draw[arr] (r6_2)--(r6_3);
-\node[hub_vnx,anchor=west] (r6_4) at (\FxE,98) {VNX\\USDC};
-\draw[arr] (r6_3)--(r6_4);
-\node[recon,anchor=west] (r6_5) at (\FxF,98) {CCTP\\return\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{CCTP}}};
-\draw[arr] (r6_4)--(r6_5);
+\node[rowlbl,text=ink!40] at (-2,98) {sol$\rightarrow$vnx};
+\node[hub_sol, opacity=0.42,anchor=west] (r6_0) at (\FxA,98) {Sol\\USDC};
+\node[act, opacity=0.42,anchor=west] (r6_1) at (\FxB,98) {Jupiter\\USDC$\rightarrow$VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{Jupiter}}};
+\draw[arr, opacity=0.42] (r6_0)--(r6_1);
+\node[hub_vnx, opacity=0.42,anchor=west] (r6_2) at (\FxC,98) {VNX\\deposit\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r6_1)--(r6_2);
+\node[act, opacity=0.42,anchor=west] (r6_3) at (\FxD,98) {Platform\\sell VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
+\draw[arr, opacity=0.42] (r6_2)--(r6_3);
+\node[hub_vnx, opacity=0.42,anchor=west] (r6_4) at (\FxE,98) {VNX\\USDC};
+\draw[arr, opacity=0.42] (r6_3)--(r6_4);
+\node[recon, opacity=0.42,anchor=west] (r6_5) at (\FxF,98) {CCTP\\return\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{CCTP}}};
+\draw[arr, opacity=0.42] (r6_4)--(r6_5);
 \node[rowlbl,text=primary] at (-2,105) {vnx$\rightarrow$sol};
 \node[hub_vnx,anchor=west] (r7_0) at (\FxA,105) {VNX\\USDC};
 \node[act,anchor=west] (r7_1) at (\FxB,105) {Platform\\buy VNXAU\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{VNX}}};
@@ -164,6 +166,10 @@
 \node[recon,anchor=west] (r7_5) at (\FxF,105) {CCTP\\Sol$\rightarrow$ETH\\{\fontsize{4.8}{5.8}\selectfont\textcolor{ink!45}{CCTP}}};
 \draw[arr] (r7_4)--(r7_5);
 \end{tikzpicture}
+\vspace{1mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1mm}
+\noindent\fcolorbox{warnstroke}{warnbg}{\begin{minipage}{\linewidth}
+{\fontsize{7.5}{9}\selectfont\bfseries\color{warnstroke} VNX ETH = USDC only} {\fontsize{6.8}{8}\selectfont --- platform credits USDC deposits on Ethereum; CCTP return path lands ETH USDC before \texttt{cctp\_sol\_usdc\_to\_vnx}.}
+\end{minipage}}
 \vspace{1mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1mm}
 \noindent\begin{minipage}[t]{0.55\linewidth}{\fontsize{6.8}{8}\selectfont
 \textbf{Legend:} colored hub = chain stable · gold = swap leg · dashed = rebalance · 

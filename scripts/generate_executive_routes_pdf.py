@@ -152,6 +152,8 @@ STYLES = r"""
 \definecolor{vnxstroke}{RGB}{0,107,98}
 \definecolor{callout}{RGB}{255,243,224}
 \definecolor{calloutstroke}{RGB}{230,126,34}
+\definecolor{warnbg}{RGB}{254,235,235}
+\definecolor{warnstroke}{RGB}{197,48,48}
 \newcommand{\statlabel}[1]{{\fontsize{6}{7.5}\selectfont\bfseries\textcolor{ink!55}{\MakeUppercase{#1}}}}
 \tikzset{
   hub_base/.style={draw=basestroke,thick,fill=basefill,rounded corners=2pt,minimum height=6.8mm,minimum width=12.5mm,align=center,font=\fontsize{6.2}{7.5}\selectfont\bfseries,inner sep=1pt},
@@ -254,6 +256,12 @@ def build_latex() -> str:
 
     lines += [
         r"\end{tikzpicture}",
+        r"\vspace{1mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1mm}",
+        r"\noindent\fcolorbox{warnstroke}{warnbg}{\begin{minipage}{\linewidth}",
+        r"{\fontsize{7.5}{9}\selectfont\bfseries\color{warnstroke} VNX ETH = USDC only} "
+        r"{\fontsize{6.8}{8}\selectfont --- platform credits USDC deposits on Ethereum; "
+        r"CCTP return path lands ETH USDC before \texttt{cctp\_sol\_usdc\_to\_vnx}.}",
+        r"\end{minipage}}",
         r"\vspace{1mm}\noindent\rule{\linewidth}{0.3pt}\vspace{1mm}",
         r"\noindent\begin{minipage}[t]{0.55\linewidth}{\fontsize{6.8}{8}\selectfont",
         r"\textbf{Legend:} colored hub = chain stable · gold = swap leg · dashed = rebalance · ",

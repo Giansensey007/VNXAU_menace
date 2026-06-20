@@ -35,9 +35,9 @@ from src.treasury.loops import (
     LEG_END_STABLE,
     inverse_direction,
     return_leg_direction,
-    use_cctp_usdc_return,
 )
 from src.vnx.deposits import min_deposit_usdc, min_deposit_vnxau
+from src.vnx.trading import vnxau_min_order
 
 
 def _texttt(s: str) -> str:
@@ -57,46 +57,59 @@ def _tex(s: str) -> str:
     )
 
 
+_PLATFORM_MIN = f"{vnxau_min_order():.1f}"
+
 ROUTE_STEPS: dict[str, list[str]] = {
     "base_to_solana": [
-        "Spend Base USDT $\\rightarrow$ buy VNXAU (Ubeswap)",
+        "Spend Base USDC $\\rightarrow$ buy VNXAU (KyberSwap)",
         "Deposit VNXAU to VNX (BASE, min 5 VNXAU cumulative)",
         "Withdraw VNXAU to Solana",
         "Sell VNXAU for Sol USDC (Jupiter)",
-        "Wormhole USDT rebalance Base $\\leftrightarrow$ Sol (stable leg)",
+        "Wormhole USDC rebalance Base $\\leftrightarrow$ Sol (stable leg)",
     ],
     "solana_to_base": [
         "Spend Sol USDC $\\rightarrow$ buy VNXAU (Jupiter)",
         "Deposit VNXAU to VNX (SOL, min 5 VNXAU)",
         "Withdraw VNXAU to Base",
-        "Sell VNXAU for Base USDT (Ubeswap)",
-        "Wormhole USDT rebalance",
+        "Sell VNXAU for Base USDC (KyberSwap)",
+        "Wormhole USDC rebalance",
     ],
     "base_to_vnx": [
-        "Spend Base USDT $\\rightarrow$ buy VNXAU on Base",
+        "Spend Base USDC $\\rightarrow$ buy VNXAU on Base (KyberSwap)",
         "Deposit VNXAU to VNX platform (BASE)",
         "Platform sell VNXAU for USDC",
-        "Platform sell VNXAU for USDC",
+        "Hub return: Wormhole Base USDC $\\rightarrow$ ETH $\\rightarrow$ VNX deposit",
     ],
     "vnx_to_base": [
-        "Platform buy VNXAU (min 40 VNXAU order)",
+        f"Platform buy VNXAU (min {_PLATFORM_MIN} VNXAU order)",
         "Withdraw VNXAU to Base",
-        "Sell VNXAU for Base USDT",
+        "Sell VNXAU for Base USDC (KyberSwap)",
+    ],
+    "ethereum_to_vnx": [
+        "Spend ETH USDC $\\rightarrow$ buy VNXAU on Ethereum (KyberSwap)",
+        "Deposit VNXAU to VNX platform (ETH)",
+        "Platform sell VNXAU for USDC",
+    ],
+    "vnx_to_ethereum": [
+        f"Platform buy VNXAU (min {_PLATFORM_MIN} VNXAU order)",
+        "Withdraw VNXAU to Ethereum",
+        "Sell VNXAU for ETH USDC (KyberSwap)",
     ],
     "solana_to_vnx": [
         "Spend Sol USDC $\\rightarrow$ buy VNXAU (Jupiter)",
         "Deposit VNXAU to VNX (SOL, min 5 VNXAU)",
         "Platform sell VNXAU for USDC",
+        "CCTP reconcile (Sol USDC $\\leftrightarrow$ ETH USDC probe)",
     ],
     "vnx_to_solana": [
-        "Platform buy VNXAU (min 40 VNXAU order)",
+        f"Platform buy VNXAU (min {_PLATFORM_MIN} VNXAU order)",
         "Withdraw VNXAU to Solana",
         "Sell VNXAU for Sol USDC (Jupiter)",
     ],
     CCTP_SOL_USDC_TO_VNX: [
         "Burn Sol USDC via Circle CCTP $\\rightarrow$ Ethereum",
         "Claim USDC on ETH hot wallet",
-        "Deposit USDC to VNX platform (ETH, min 5 USDC)",
+        f"Deposit USDC to VNX platform (ETH, min {min_deposit_usdc('ETH'):.0f} USDC)",
         "Platform buy VNXAU with credited USDC",
         "\\textit{Return leg after vnx\\_to\\_solana when origin = platform}",
     ],
@@ -107,9 +120,9 @@ HUB_ROUTES = [
     ("vnx\\_to\\_eth", "VNX platform USDC $\\rightarrow$ ETH hot wallet withdraw"),
     ("cctp\\_sol\\_to\\_eth", "Sol USDC $\\rightarrow$ ETH USDC (Circle CCTP)"),
     ("cctp\\_eth\\_to\\_sol", "ETH USDC $\\rightarrow$ Sol USDC (Circle CCTP)"),
-    ("wormhole\\_base\\_to\\_eth", "Base USDT $\\rightarrow$ ETH USDT (Wormhole) + USDT$\\rightarrow$USDC swap"),
-    ("wormhole\\_eth\\_to\\_base", "ETH USDT $\\rightarrow$ Base USDT (Wormhole)"),
-    ("base\\_usdt\\_to\\_vnx\\_usdc", "Base USDT $\\rightarrow$ Wormhole $\\rightarrow$ ETH USDC $\\rightarrow$ VNX USDC"),
+    ("wormhole\\_base\\_to\\_eth", "Base USDC $\\rightarrow$ ETH USDC (Wormhole)"),
+    ("wormhole\\_eth\\_to\\_base", "ETH USDC $\\rightarrow$ Base USDC (Wormhole)"),
+    ("base\\_usdc\\_to\\_vnx\\_usdc", "Base USDC $\\rightarrow$ Wormhole $\\rightarrow$ ETH USDC $\\rightarrow$ VNX USDC"),
 ]
 
 
@@ -126,7 +139,7 @@ async def _live_scan() -> list[dict]:
     rows: list[dict] = []
 
     async with build_client() as client:
-        for size in (40.0, cfg.min_trade_vnxau):
+        for size in (VNX_MIN_VNXAU + 0.1, cfg.min_trade_vnxau):
             for direction in ALL_DIRECTIONS:
                 origin = origin_for_direction(direction)
                 rt = await simulate_round_trip(
@@ -174,16 +187,16 @@ def _build_latex(live_rows: list[dict] | None) -> str:
         r"\begin{document}",
         r"\begin{center}",
         r"{\LARGE\bfseries\color{accent} VNXAU Menace --- Route Map}\\[6pt]",
-        rf"{{\color{{muted}}\small Generated {now} · github.com/Giansensey007/gbp\_menace\_-}}\\[12pt]",
+        rf"{{\color{{muted}}\small Generated {now} · github.com/Giansensey007/VNXAU\_menace}}\\[12pt]",
         r"\end{center}",
         r"\section*{Configuration snapshot}",
         r"\begin{tabular}{@{}ll@{}}",
         rf"Treasury VNXAU home & platform-only (idle VNXAU on VNX) \\",
         rf"Closed loop & after every arb (return leg always runs) \\",
-        rf"Trade size & {cfg.min_trade_vnxau:.0f}--{cfg.max_trade_vnxau:.0f} VNXAU \\",
+        rf"Trade size & {cfg.min_trade_vnxau:.1f}--{cfg.max_trade_vnxau:.0f} VNXAU \\",
         rf"Min profit & \${cfg.min_profit_usd:.2f} round-trip \\",
-        rf"VNX platform order min & {VNX_MIN_VNXAU:.0f} VNXAU \\",
-        rf"VNX deposit min (BASE/SOL VNXAU) & 5 VNXAU cumulative \\",
+        rf"VNX platform order min & {vnxau_min_order():.1f} VNXAU \\",
+        rf"VNX deposit min (BASE/SOL/ETH VNXAU) & {min_deposit_vnxau('BASE'):.0f} VNXAU cumulative \\",
         rf"VNX deposit min (ETH USDC) & {min_deposit_usdc('ETH'):.0f} USDC \\",
         rf"enable\_vnx\_cctp\_routes & {str(cfg.enable_vnx_cctp_routes).lower()} \\",
         rf"enable\_vnx\_arb\_routes & {str(cfg.enable_vnx_arb_routes).lower()} \\",
@@ -191,11 +204,12 @@ def _build_latex(live_rows: list[dict] | None) -> str:
         r"\section*{Chain inventory model}",
         r"\begin{itemize}[nosep]",
         r"\item \textbf{Platform (VNX):} all idle VNXAU + USDC for \texttt{vnx\_to\_*} buys",
-        r"\item \textbf{Base:} USDT only (no idle VNXAU; dust $\leq$ 0.5 VNXAU swept to platform)",
+        r"\item \textbf{Base:} USDC only (no idle VNXAU; dust swept to platform)",
         r"\item \textbf{Solana:} USDC only (no idle VNXAU)",
-        r"\item \textbf{Ethereum:} USDC/USDT hub buffers + gas (no VNXAU)",
+        r"\item \textbf{Ethereum:} USDC hub buffer + gas (no idle VNXAU)",
+        r"\item \textbf{VNX ETH = USDC only:} platform credits USDC deposits on Ethereum --- never USDT",
         r"\end{itemize}",
-        r"\section*{Arbitrage routes (6 directed pairs)}",
+        rf"\section*{{Arbitrage routes ({len(ALL_DIRECTIONS)} directed pairs)}}",
     ]
 
     for direction in ALL_DIRECTIONS:
@@ -220,10 +234,12 @@ def _build_latex(live_rows: list[dict] | None) -> str:
         else:
             lines.append(rf"Closed-loop return & {_tex(ret or inv or '—')} \\")
         lines.append(r"\end{tabular}")
-        lines.append(r"\begin{enumerate}[nosep,leftmargin=*]")
-        for step in ROUTE_STEPS.get(direction, []):
-            lines.append(rf"\item {step}")
-        lines.append(r"\end{enumerate}")
+        steps = ROUTE_STEPS.get(direction, [])
+        if steps:
+            lines.append(r"\begin{enumerate}[nosep,leftmargin=*]")
+            for step in steps:
+                lines.append(rf"\item {step}")
+            lines.append(r"\end{enumerate}")
 
     lines.extend(
         [
@@ -245,11 +261,13 @@ def _build_latex(live_rows: list[dict] | None) -> str:
             r"Origin & Primary & Return leg & Ends on \\",
             r"\midrule",
             r"\endhead",
-            (r"Base USDT & base\_to\_solana & solana\_to\_base & Base USDT \\"),
-            (r"Base USDT & base\_to\_vnx & vnx\_to\_base & Base USDT \\"),
+            (r"Base USDC & base\_to\_solana & solana\_to\_base & Base USDC \\"),
+            (r"Base USDC & base\_to\_vnx & vnx\_to\_base & Base USDC \\"),
+            (r"ETH USDC & ethereum\_to\_vnx & vnx\_to\_ethereum & ETH USDC \\"),
             (r"Sol USDC & solana\_to\_vnx & vnx\_to\_solana & Sol USDC \\"),
             (r"Sol USDC & solana\_to\_base & base\_to\_solana & Sol USDC \\"),
             (r"Platform & vnx\_to\_base & base\_to\_vnx & Platform USDC \\"),
+            (r"Platform & vnx\_to\_ethereum & ethereum\_to\_vnx & Platform USDC \\"),
             (
                 r"Platform & vnx\_to\_solana & \textbf{cctp\_sol\_usdc\_to\_vnx} & Platform VNXAU \\"
             ),
