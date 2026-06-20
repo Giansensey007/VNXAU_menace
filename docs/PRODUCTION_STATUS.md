@@ -1,7 +1,7 @@
 # VNXAU Menace — production status
 
 **Chains:** Base + Ethereum + Solana (no Celo) · **Swaps:** KyberSwap (EVM) + Jupiter (Sol) · **Default:** `DRY_RUN=true`  
-**Last commit:** _(pending)_ · **pytest:** 165 passed · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
+**Last commit:** `d8ea2d1` · **pytest:** 165 passed · **Remote:** `https://github.com/Giansensey007/VNXAU_menace.git`
 
 ## 10-iteration sanity (`run_sanity_10.py`)
 
