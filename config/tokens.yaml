@@ -1,0 +1,11 @@
+tokens:
+  VNXAU:
+    symbol: VNXAU
+    decimals: 18
+    chain_decimals:
+      solana: 9
+    chains:
+      base: "0xac3fe22294beaed9d1fd752323a6d06d12ff3098"
+      ethereum: "0x6d57b2e05f26c26b549231c866bdd39779e4a488"
+      solana: "9TPL8droGJ7jThsq4momaoz6uhTcvX2SeMqipoPmNa8R"
+      vnx: VNXAU

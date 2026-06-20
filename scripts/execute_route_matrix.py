@@ -1,0 +1,1169 @@
+#!/usr/bin/env python3
+"""
+Force-execute route legs at TEST_VNXAU (default 31) without profit gate.
+Logs every TX with intent + explorer URL to data/tx_log.jsonl.
+
+Usage:
+  python scripts/execute_route_matrix.py --step audit
+  python scripts/execute_route_matrix.py --step cctp-claim
+  python scripts/execute_route_matrix.py --step production
+  python scripts/execute_route_matrix.py --step all
+"""
+from __future__ import annotations
+
+import argparse
+import asyncio
+import json
+import logging
+import os
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from dotenv import load_dotenv
+
+load_dotenv(ROOT / ".env")
+
+from src.vnx.deposits import check_usdc_deposit_amount, min_deposit_usdc
+from src.bridge.cctp_queue import CctpClaimQueue
+from src.bridge.hub_eth import (
+    base_usdc_to_sol_usdc,
+    base_usdc_to_vnx_usdc,
+    eth_usdc_to_vnx,
+    sol_usdc_to_base_usdc,
+    vnx_usdc_to_eth,
+    wormhole_base_to_eth,
+    wormhole_base_to_sol_direct,
+    wormhole_eth_to_base,
+    wormhole_eth_to_base_via_usdc,
+    eth_usdt_to_sol_usdc,
+)
+from src.bridge.wormhole_queue import WormholeClaimQueue
+from src.config_loader import load_bot_config, load_chains, load_tokens, token_decimals
+from src.execution.base import BaseExecutor
+from src.execution.executor import ArbExecutor, CycleRecord, CycleState
+from src.execution.solana import SolanaExecutor
+from src.execution.tx_log import TX_LOG_PATH, log_platform_order, log_tx
+from src.quotes.http_client import build_client
+from src.quotes.types import from_human, to_human
+from src.scanner.routes import active_directions
+from src.scanner.simulator import simulate_direction
+from src.vnx.client import VnxClient
+from src.vnx.trading import platform_buy_vnxau, platform_sell_vnxau
+
+logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+logger = logging.getLogger("route_matrix")
+
+import os
+
+TEST_VNXAU = 0.5
+_ROUTE_SIZE = TEST_VNXAU  # overridden by --size CLI flag
+PROBE_VNXAU = 0.01  # matches VNX_MIN_DEPOSIT_VNXAU_BASE for Base deposit routes
+PROBE_USDC = 0.4  # minimum Sol USDC for DEX probe when balance < 5
+BASE_MIN_VNXAU = 0.01  # VNX platform min cumulative deposit on BASE
+CCTP_USDC = 5.0
+ETH_MIN_USDC_DEPOSIT = min_deposit_usdc("ETH")  # VNX cumulative credit min on ETH (default 20)
+HUB_USDC = ETH_MIN_USDC_DEPOSIT  # never deposit ETH USDC to VNX below this
+HUB_USDT = 5.0  # wormhole hub probes (separate from VNX USDC minimum)
+CCTP_CLAIM_INTERVAL = float(os.getenv("CCTP_CLAIM_INTERVAL_SEC", "30"))
+CCTP_CLAIM_MAX_ROUNDS = int(os.getenv("CCTP_CLAIM_MAX_ROUNDS", "120"))
+_cctp_discovered = False
+PRODUCTION_ROUTE_ORDER = (
+    "vnx_to_solana",
+    "solana_to_vnx",
+    "solana_to_base",
+    "base_to_solana",
+)
+
+
+def _log(msg: str) -> None:
+    print(msg, flush=True)
+
+
+async def audit() -> None:
+    chains = load_chains()
+    token = load_tokens()["VNXAU"]
+    async with VnxClient() as vnx:
+        bal = await vnx.account_balance()
+        _log(
+            f"Platform: USDC={vnx.usdc_balance(bal):.2f} VNXAU={vnx.vnxau_balance(bal):.2f} "
+            f"CHF={vnx._asset_balance(bal, 'CHF'):.2f}"
+        )
+    base = BaseExecutor(chains["base"])
+    dec = token_decimals(token, "base")
+    from src.bridge.base_usdc import base_usdc_balances
+
+    base_bals = base_usdc_balances(base)
+    base_line = (
+        f"Base: USDT={base_bals['canonical']:.2f} "
+        f"VNXAU={to_human(base.balance_erc20(token.chains['base']), dec):.4f}"
+    )
+    if base_bals["wrapped_eth"] >= 0.01:
+        base_line += f" (wrapped ETH-USDT={base_bals['wrapped_eth']:.2f} — run consolidate-base-usdc)"
+    _log(base_line)
+    sol = SolanaExecutor(chains["solana"])
+    sdec = token_decimals(token, "solana")
+    from spl.token.instructions import get_associated_token_address
+    from solders.pubkey import Pubkey
+
+    usdc_ata = get_associated_token_address(
+        sol.keypair.pubkey(), Pubkey.from_string(chains["solana"].hub_token)
+    )
+    vnxau_ata = get_associated_token_address(
+        sol.keypair.pubkey(), Pubkey.from_string(token.chains["solana"])
+    )
+    usdc = sol.client.get_token_account_balance(usdc_ata).value.ui_amount or 0
+    try:
+        vnxau = sol.client.get_token_account_balance(vnxau_ata).value.ui_amount or 0
+    except Exception:
+        vnxau = 0.0
+    _log(f"Sol: USDC={usdc:.2f} VNXAU={vnxau:.4f} SOL={sol.balance_lamports()/1e9:.4f}")
+    try:
+        from src.execution.ethereum import EthereumExecutor
+        from src.config_loader import load_bridge_config
+
+        wh = load_bridge_config()["wormhole"]
+        eth = EthereumExecutor(chains["ethereum"])
+        _log(
+            f"ETH: USDC={to_human(eth.balance_erc20(chains['ethereum'].hub_token), 6):.2f} "
+            f"USDT={to_human(eth.balance_erc20(wh['ethereum_usdt']), 6):.2f} "
+            f"ETH={eth.balance_native()/1e18:.4f}"
+        )
+        wrapped = wh.get("base_usdc_wormhole_from_eth")
+        if wrapped:
+            from src.execution.ethereum import ERC20_ABI
+            from web3 import Web3
+
+            wbal = base.w3.eth.contract(
+                address=Web3.to_checksum_address(wrapped), abi=ERC20_ABI
+            ).functions.balanceOf(base.address).call()
+            if wbal > 10_000:
+                _log(f"Base wrapped ETH-USDT: {to_human(wbal, 6):.2f} (Wormhole redeem)")
+    except Exception as exc:
+        _log(f"ETH: unavailable ({exc})")
+
+
+async def step_wormhole_usdt_check(amount: float = 1.0) -> bool:
+    """On-chain verify Wormhole USDT paths (eth_call, no broadcast)."""
+    from scripts.check_wormhole_usdt import run as wormhole_check
+
+    _log(f"\n=== Wormhole USDT bridge check ({amount} USDT probe) ===")
+    rc = await wormhole_check(amount, execute=False)
+    return rc == 0
+
+
+async def step_wormhole_preflight() -> bool:
+    """Wormhole sim: require ETH→Base when funded; Base outbound when funded."""
+    from scripts.check_wormhole_usdt import run as wormhole_check
+    from src.bridge.wormhole import WormholePortalBridge
+    from src.config_loader import load_bridge_config, load_chains
+    from src.execution.base import BaseExecutor
+    from src.execution.ethereum import EthereumExecutor
+    from src.quotes.types import to_human
+
+    chains = load_chains()
+    wh_cfg = load_bridge_config()["wormhole"]
+    base = BaseExecutor(chains["base"])
+    eth = EthereumExecutor(chains["ethereum"])
+    wh = WormholePortalBridge(chains["base"])
+
+    eth_usdt = float(to_human(eth.balance_erc20(wh_cfg["ethereum_usdt"]), 6))
+    base_usdc = float(to_human(base.balance_erc20(chains["base"].hub_token), 6))
+    probe = min(1.0, eth_usdt * 0.9) if eth_usdt >= 0.05 else 0.0
+
+    if probe >= 0.05:
+        eth_ok = wh.simulate_eth_transfer_tokens(probe, base.address, eth_exec=eth).get("ok")
+        _log(f"\n=== Wormhole preflight ETH→Base (${probe:.2f} USDT): {'OK' if eth_ok else 'FAIL'} ===")
+        if not eth_ok:
+            return False
+    else:
+        _log(f"\n=== Wormhole preflight ETH→Base: SKIP (ETH USDT {eth_usdt:.2f} — sim when funded) ===")
+
+    if base_usdc >= 0.05:
+        base_probe = min(1.0, base_usdc * 0.9)
+        rc = await wormhole_check(base_probe, execute=False)
+        _log(f"=== Wormhole preflight Base outbound (${base_probe:.2f} USDT): {'OK' if rc == 0 else 'FAIL'} ===")
+        if rc != 0:
+            _log("  (Base outbound sim failed — may need more canonical USDT or BASE gas)")
+            return False
+        return True
+    _log(f"SKIP Base→* sim (canonical USDT {base_usdc:.2f} < 0.05 — fund Base for outbound)")
+    return True
+
+
+async def step_cctp_claim(*, discover: bool | None = None) -> bool:
+    global _cctp_discovered
+    if discover is None:
+        discover = not _cctp_discovered
+    _log("\n=== CCTP claim queue (discover + claim until empty) ===")
+    queue = CctpClaimQueue()
+    async with build_client() as client:
+        summary = await queue.run_until_empty(
+            client,
+            interval_sec=CCTP_CLAIM_INTERVAL,
+            max_rounds=CCTP_CLAIM_MAX_ROUNDS,
+            discover_first=discover,
+        )
+    if discover:
+        _cctp_discovered = True
+    _log(f"CCTP claimed={summary['claimed']} remaining={summary['remaining']} rounds={summary['rounds']}")
+    return summary["remaining"] == 0
+
+
+async def step_rebalance(execute: bool = True) -> bool:
+    from scripts.rebalance_for_test import rebalance
+
+    return await rebalance(execute)
+
+
+async def step_platform_buy() -> bool:
+    _log("\n=== Platform buy VNXAU ===")
+    cfg = load_bot_config()
+    async with VnxClient() as vnx:
+        buy = await platform_buy_vnxau(cfg, TEST_VNXAU, vnx=vnx)
+        if not buy.success:
+            _log(f"FAIL: {buy.error}")
+            return False
+        log_platform_order("platform_buy_vnxau", buy.ordid, qty=buy.quantity, price=buy.price)
+        _log(f"OK ordid={buy.ordid} qty={buy.quantity} price={buy.price}")
+    return True
+
+
+async def step_platform_sell() -> bool:
+    _log("\n=== Platform sell VNXAU ===")
+    cfg = load_bot_config()
+    async with VnxClient() as vnx:
+        bal = await vnx.account_balance()
+        qty = min(TEST_VNXAU, vnx.vnxau_balance(bal))
+        if qty < TEST_VNXAU * 0.99:
+            _log(f"FAIL: only {qty:.2f} VNXAU on platform")
+            return False
+        sell = await platform_sell_vnxau(cfg, qty, vnx=vnx)
+        if not sell.success:
+            _log(f"FAIL: {sell.error}")
+            return False
+        log_platform_order("platform_sell_vnxau", sell.ordid, sold=sell.sold, currency=sell.sold_currency)
+        _log(f"OK ordid={sell.ordid} sold={sell.sold} {sell.sold_currency}")
+    return True
+
+
+def _log_cycle_txs(direction: str, record: CycleRecord) -> None:
+    for tx in record.tx_hashes:
+        if not tx or tx.startswith("dry-run"):
+            continue
+        if tx.isdigit() or tx.startswith("ordid:"):
+            continue
+        if len(tx) > 60 or (len(tx) > 40 and not tx.startswith("0x")):
+            chain = "solana"
+        elif tx.startswith("0x"):
+            chain = "base" if "base" in direction and "vnx" not in direction else "ethereum"
+        else:
+            chain = "solana" if "solana" in direction else "base"
+        log_tx(f"route_{direction}", chain, tx, ok=record.state == CycleState.DONE)
+
+
+async def _force_exec(direction: str, size: float = TEST_VNXAU) -> bool:
+    from src.treasury.manager import TreasuryManager
+    from src.treasury.loops import origin_for_direction
+    from src.vnx.deposits import check_deposit_amount
+
+    if direction in ("base_to_solana", "base_to_vnx"):
+        import os
+
+        bc = os.getenv("VNX_BASE_BLOCKCHAIN", "BASE")
+        err = check_deposit_amount(bc, size)
+        if err:
+            _log(f"  SKIP {direction}: {err}")
+            return False
+    if direction in ("solana_to_vnx", "solana_to_base"):
+        import os
+
+        bc = os.getenv("VNX_SOL_BLOCKCHAIN", "SOL")
+        err = check_deposit_amount(bc, size)
+        if err:
+            _log(f"  SKIP {direction}: {err}")
+            return False
+
+    chains = load_chains()
+    token = load_tokens()["VNXAU"]
+    cfg = load_bot_config()
+    ex = ArbExecutor(chains, token, cfg)
+    treasury = TreasuryManager(chains, token, cfg)
+    origin = origin_for_direction(direction)
+
+    async with build_client() as client:
+        from src.scanner.simulator import simulate_round_trip
+
+        rt = await simulate_round_trip(client, chains, token, cfg, direction, size, origin=origin)
+        _log(
+            f"  round-trip {direction}@{origin}: primary=${rt.primary.net_profit_usd:.2f} "
+            f"return={rt.return_direction} ${rt.return_sim.net_profit_usd if rt.return_sim else 0:.2f} "
+            f"total=${rt.round_trip_profit_usd:.2f}"
+        )
+
+        result = await treasury.run_closed_loop(
+            client,
+            ex,
+            origin=origin,
+            direction=direction,
+            size_vnxau=size,
+            force_return=True,
+            force_execute=True,
+        )
+        _log(
+            f"  {'OK' if result.closed else 'FAIL'} closed={result.closed} "
+            f"primary={result.primary_direction} return={result.return_direction} "
+            f"reason={result.reason}"
+        )
+        if result.primary:
+            _log_cycle_txs(direction, result.primary)
+        if result.return_leg and result.return_direction:
+            _log_cycle_txs(result.return_direction, result.return_leg)
+
+        if direction in ("vnx_to_solana", "solana_to_vnx", "base_to_solana", "solana_to_base"):
+            await step_cctp_claim()
+
+        return result.closed
+
+
+async def step_base_swaps() -> bool:
+    _log("\n=== Base buy/sell probe ===")
+    chains = load_chains()
+    token = load_tokens()["VNXAU"]
+    base = BaseExecutor(chains["base"])
+    dec = token_decimals(token, "base")
+    usdt_token = chains["base"].hub_token
+    usdt_bal = float(to_human(base.balance_erc20(usdt_token), chains["base"].hub_decimals))
+    vnxau_raw = base.balance_erc20(token.chains["base"])
+
+    # Prefer USDT→VNXAU→USDT when USDT funded; else round-trip existing VNXAU
+    if usdt_bal >= PROBE_USDC:
+        usdt_in = from_human(min(5.0, usdt_bal * 0.9), chains["base"].hub_decimals)
+        sim = base.simulate_swap(usdt_token, token.chains["base"], usdt_in, 100)
+        if not sim:
+            _log("FAIL base buy quote")
+            return False
+        min_out = int(sim["amount_out"] * 0.97)
+        tx1 = base.swap_exact_input(usdt_token, token.chains["base"], usdt_in, min_out)
+        if not tx1:
+            _log("FAIL base buy")
+            return False
+        log_tx("probe_base_buy_vnxau", "base", tx1)
+        vnxau_raw = base.balance_erc20(token.chains["base"])
+    elif vnxau_raw > 0:
+        _log(f"  USDT low ({usdt_bal:.2f}) — round-trip {float(to_human(vnxau_raw, dec)):.4f} VNXAU")
+    else:
+        _log(f"FAIL base swaps — no USDT ({usdt_bal:.2f}) or VNXAU on Base")
+        return False
+
+    sell_sim = base.simulate_swap(token.chains["base"], usdt_token, vnxau_raw, 100)
+    min_usdt = int(sell_sim["amount_out"] * 0.97) if sell_sim else int(0.01 * 10**chains["base"].hub_decimals)
+    tx2 = base.swap_exact_input(token.chains["base"], usdt_token, vnxau_raw, min_usdt)
+    if not tx2:
+        _log("FAIL base sell")
+        return False
+    log_tx("probe_base_sell_vnxau", "base", tx2)
+
+    if usdt_bal >= PROBE_USDC:
+        return True
+    # VNXAU-only round trip: buy back with USDT received
+    usdt_after = base.balance_erc20(usdt_token)
+    if usdt_after <= 0:
+        return True
+    buy_sim = base.simulate_swap(usdt_token, token.chains["base"], usdt_after, 100)
+    if not buy_sim:
+        return True
+    min_vnxau = int(buy_sim["amount_out"] * 0.97)
+    tx3 = base.swap_exact_input(usdt_token, token.chains["base"], usdt_after, min_vnxau)
+    if tx3:
+        log_tx("probe_base_buy_vnxau", "base", tx3)
+    return bool(tx3)
+
+
+async def step_sol_swaps() -> bool:
+    _log("\n=== Sol buy/sell probe ===")
+    chains = load_chains()
+    token = load_tokens()["VNXAU"]
+    cfg = load_bot_config()
+    sol = SolanaExecutor(chains["solana"])
+    from spl.token.instructions import get_associated_token_address
+    from solders.pubkey import Pubkey
+
+    usdc_ata = get_associated_token_address(sol.keypair.pubkey(), Pubkey.from_string(chains["solana"].hub_token))
+    usdc_bal = float(sol.client.get_token_account_balance(usdc_ata).value.ui_amount or 0)
+    vnxau_ata = get_associated_token_address(sol.keypair.pubkey(), Pubkey.from_string(token.chains["solana"]))
+    try:
+        vnxau_bal = float(sol.client.get_token_account_balance(vnxau_ata).value.ui_amount or 0)
+    except Exception:
+        vnxau_bal = 0.0
+    usdc_probe = min(5.0, usdc_bal * 0.85)
+
+    async with build_client() as client:
+        if usdc_probe >= PROBE_USDC:
+            usdc = from_human(usdc_probe, chains["solana"].hub_decimals)
+            tx1 = await sol.swap(client, chains["solana"].hub_token, token.chains["solana"], usdc, cfg.slippage_bps)
+            if not tx1:
+                _log("FAIL sol buy")
+                return False
+            log_tx("probe_sol_buy_vnxau", "solana", tx1)
+            dec = token_decimals(token, "solana")
+            vnxau_ui = 0.0
+            for _ in range(12):
+                await asyncio.sleep(2.0)
+                try:
+                    vnxau_ui = float(sol.client.get_token_account_balance(vnxau_ata).value.ui_amount or 0)
+                except Exception:
+                    vnxau_ui = 0.0
+                if vnxau_ui >= 0.01:
+                    break
+            vnxau_probe = min(PROBE_VNXAU, vnxau_ui * 0.95)
+        elif vnxau_bal >= 0.01:
+            _log(f"  USDC low ({usdc_bal:.2f}) — round-trip {vnxau_bal:.4f} VNXAU")
+            dec = token_decimals(token, "solana")
+            vnxau_probe = min(PROBE_VNXAU, vnxau_bal * 0.95)
+        else:
+            _log(f"FAIL sol swaps — USDC {usdc_bal:.2f} and VNXAU {vnxau_bal:.4f}")
+            return False
+
+        if vnxau_probe < 0.01:
+            _log("FAIL sol sell — no VNXAU received")
+            return False
+        tx2 = await sol.swap(
+            client, token.chains["solana"], chains["solana"].hub_token, from_human(vnxau_probe, dec), cfg.slippage_bps
+        )
+        if not tx2:
+            _log("FAIL sol sell")
+            return False
+        log_tx("probe_sol_sell_vnxau", "solana", tx2)
+    return True
+
+
+async def step_consolidate_base_usdc() -> bool:
+    """Swap Wormhole wrapped ETH-USDT → canonical Base USDT (hub token for all routes)."""
+    from src.bridge.base_usdc import base_usdc_balances, consolidate_wrapped_to_canonical
+
+    before = base_usdc_balances()
+    _log(f"\n=== Base USDT consolidate (wrapped→canonical) before: {before} ===")
+    if before["wrapped_eth"] < 0.01:
+        _log("  SKIP — no wrapped USDT")
+        return True
+    r = consolidate_wrapped_to_canonical()
+    after = base_usdc_balances()
+    _log(f"  {'OK' if r['success'] else 'FAIL'} tx={r.get('tx')} after: {after} err={r.get('error')}")
+    return r["success"]
+
+
+async def step_wormhole_claim(*, max_rounds: int = 120) -> bool:
+    _log("\n=== Wormhole claim queue ===")
+    queue = WormholeClaimQueue()
+    async with build_client() as client:
+        summary = await queue.run_until_empty(client, max_rounds=max_rounds)
+    _log(f"Wormhole claimed={summary['claimed']} remaining={summary['remaining']}")
+    return summary["remaining"] == 0
+
+
+async def step_eth_to_vnx() -> bool:
+    dep_err = check_usdc_deposit_amount("ETH", HUB_USDC)
+    if dep_err:
+        _log(f"\n=== ETH USDC → VNX — SKIP: {dep_err} ===")
+        return False
+    _log(f"\n=== ETH USDC → VNX platform ${HUB_USDC} ===")
+    async with build_client() as client:
+        r = await eth_usdc_to_vnx(client, HUB_USDC)
+        _log(f"  {'OK' if r['success'] else 'FAIL'} deposit={r.get('deposit_tx')} err={r.get('error')}")
+        return r["success"]
+
+
+async def step_vnx_to_eth() -> bool:
+    _log(f"\n=== VNX platform USDC → ETH ${HUB_USDC} ===")
+    async with build_client() as client:
+        r = await vnx_usdc_to_eth(client, HUB_USDC)
+        _log(f"  {'OK' if r['success'] else 'FAIL'} txids={r.get('withdraw_txids')} err={r.get('error')}")
+        return r["success"]
+
+
+async def step_wormhole_base_to_eth() -> bool:
+    amount = await _hub_usdt_amount()
+    if amount < 0.05:
+        _log(f"\n=== Wormhole BASE→ETH — SKIP (canonical USDT < 0.05) ===")
+        return False
+    _log(f"\n=== Wormhole BASE→ETH ${amount:.2f} USDT (initiate+redeem) ===")
+    async with build_client() as client:
+        r = await wormhole_base_to_eth(client, amount)
+        br = r.get("wormhole")
+        _log(
+            f"  {'OK' if r['success'] else 'FAIL'} src={getattr(br, 'source_tx', None)} "
+            f"dst={getattr(br, 'dest_tx', None)} err={r.get('error')}"
+        )
+        if not r["success"]:
+            await step_wormhole_claim()
+        return r["success"]
+
+
+async def step_eth_usdt_to_sol() -> bool:
+    """Complete BASE→ETH→SOL: swap ETH USDT → USDC → CCTP → Sol."""
+    from scripts.rebalance_for_test import _balances
+    from src.config_loader import load_bridge_config
+
+    wh = load_bridge_config()["wormhole"]
+    from src.execution.ethereum import EthereumExecutor
+    from src.config_loader import load_chains
+    from src.quotes.types import to_human
+
+    eth = EthereumExecutor(load_chains()["ethereum"])
+    usdt_bal = float(to_human(eth.balance_erc20(wh["ethereum_usdt"]), 6))
+    amount = min(1.5, usdt_bal * 0.9)
+    if amount < 0.5:
+        _log(f"\n=== ETH USDT → SOL — SKIP (ETH USDT {usdt_bal:.2f} < 0.5) ===")
+        return False
+    _log(f"\n=== Complete BASE→ETH→SOL: ETH USDT→USDC→CCTP→Sol (${amount:.2f}) ===")
+    async with build_client() as client:
+        r = await eth_usdt_to_sol_usdc(client, amount)
+        _log(
+            f"  {'OK' if r['success'] else 'PARTIAL/FAIL'} stage={r.get('stage')} "
+            f"swap={r.get('swap_tx')} cctp={getattr(r.get('cctp'), 'dest_tx', None)} err={r.get('error')}"
+        )
+        if not r["success"]:
+            await step_cctp_claim()
+        return r["success"] or getattr(r.get("cctp"), "source_tx", None) is not None
+
+
+async def step_wormhole_eth_to_base() -> bool:
+    from src.config_loader import load_bridge_config, load_chains
+    from src.execution.ethereum import EthereumExecutor
+    from src.quotes.types import to_human
+
+    wh = load_bridge_config()["wormhole"]
+    eth = EthereumExecutor(load_chains()["ethereum"])
+    usdt_bal = float(to_human(eth.balance_erc20(wh["ethereum_usdt"]), 6))
+    amount = min(HUB_USDT, usdt_bal * 0.85)
+    if amount < PROBE_USDC:
+        _log(f"\n=== Wormhole ETH→BASE — SKIP (ETH USDT {usdt_bal:.2f} < {PROBE_USDC}) ===")
+        return False
+    _log(f"\n=== Wormhole ETH→BASE ${amount:.2f} USDT (initiate+redeem) ===")
+    async with build_client() as client:
+        r = await wormhole_eth_to_base(client, amount)
+        br = r.get("wormhole")
+        _log(
+            f"  {'OK' if r['success'] else 'FAIL'} src={getattr(br, 'source_tx', None)} "
+            f"dst={getattr(br, 'dest_tx', None)} err={r.get('error')}"
+        )
+        if not r["success"]:
+            await step_wormhole_claim(max_rounds=60)
+        return r["success"]
+
+
+async def step_base_usdc_to_vnx() -> bool:
+    amount = HUB_USDC  # must meet VNX ETH USDC cumulative minimum after wormhole+swap
+    dep_err = check_usdc_deposit_amount("ETH", amount * 0.99)
+    if dep_err:
+        _log(f"\n=== BASE USDT → VNX — SKIP (expected USDC ~{amount * 0.99:.2f}): {dep_err} ===")
+        return False
+    _log(f"\n=== BASE USDT → ETH USDC → VNX ${amount} ===")
+    async with build_client() as client:
+        r = await base_usdc_to_vnx_usdc(client, amount)
+        _log(f"  {'OK' if r['success'] else 'FAIL'} stage={r.get('stage')} err={r.get('error')}")
+        if not r["success"]:
+            await step_wormhole_claim()
+        return r["success"]
+
+
+async def _hub_usdt_amount() -> float:
+    from scripts.rebalance_for_test import _balances
+
+    b = await _balances()
+    avail = b.get("base_usdc", 0) * 0.9
+    if avail < 0.05:
+        return 0.0
+    return min(HUB_USDT, avail)
+
+
+async def _hub_usdc_amount() -> float:
+    from scripts.rebalance_for_test import _balances
+
+    b = await _balances()
+    avail = b.get("sol_usdc", 0) * 0.9
+    if avail < PROBE_USDC:
+        return 0.0
+    return min(CCTP_USDC, avail)
+
+
+async def step_hub_base_eth_sol() -> bool:
+    """BASE USDT → Wormhole → ETH USDT → swap USDC → CCTP → Sol USDC."""
+    amount = await _hub_usdt_amount()
+    if amount < PROBE_USDC:
+        _log(f"\n=== Hub triangle BASE → ETH → SOL — SKIP (Base USDT < {PROBE_USDC}) ===")
+        return False
+    _log(f"\n=== Hub triangle BASE → ETH → SOL (${amount:.2f} USDT) ===")
+    async with build_client() as client:
+        r = await base_usdc_to_sol_usdc(client, amount)
+        _log(
+            f"  {'OK' if r['success'] else 'PARTIAL/FAIL'} stage={r.get('stage')} "
+            f"wh={getattr(r.get('wormhole'), 'source_tx', None)} "
+            f"cctp={getattr(r.get('cctp'), 'dest_tx', None)} err={r.get('error')}"
+        )
+        if not r["success"]:
+            await step_wormhole_claim()
+            await step_cctp_claim()
+        return r["success"] or getattr(r.get("cctp"), "source_tx", None) is not None
+
+
+async def step_hub_sol_eth_base() -> bool:
+    """Sol USDC → CCTP → ETH USDC → swap USDT → Wormhole → BASE USDT."""
+    amount = await _hub_usdc_amount()
+    if amount < PROBE_USDC:
+        _log(f"\n=== Hub triangle SOL → ETH → BASE — SKIP (Sol USDC < {PROBE_USDC}) ===")
+        return False
+    _log(f"\n=== Hub triangle SOL → ETH → BASE (${amount:.2f} USDC) ===")
+    async with build_client() as client:
+        r = await sol_usdc_to_base_usdc(client, amount)
+        _log(
+            f"  {'OK' if r['success'] else 'PARTIAL/FAIL'} stage={r.get('stage')} "
+            f"cctp={getattr(r.get('cctp'), 'source_tx', None)} "
+            f"wh={getattr(r.get('wormhole'), 'dest_tx', None)} err={r.get('error')}"
+        )
+        if not r["success"]:
+            try:
+                await step_cctp_claim()
+            except Exception as exc:
+                _log(f"  CCTP claim after partial: {exc}")
+            try:
+                await step_wormhole_claim(max_rounds=40)
+            except Exception as exc:
+                _log(f"  Wormhole claim after partial: {exc}")
+        return r["success"] or getattr(r.get("cctp"), "source_tx", None) is not None
+
+
+async def step_wormhole_base_to_sol() -> bool:
+    _log(f"\n=== Wormhole BASE→SOL direct ${HUB_USDT} USDT ===")
+    async with build_client() as client:
+        r = await wormhole_base_to_sol_direct(client, HUB_USDT)
+        br = r.get("wormhole")
+        _log(
+            f"  {'OK' if r['success'] else 'FAIL'} src={getattr(br, 'source_tx', None)} "
+            f"dst={getattr(br, 'dest_tx', None)} err={r.get('error')}"
+        )
+        if not r["success"]:
+            await step_wormhole_claim()
+        return r["success"]
+
+
+async def step_hub_cross_chain() -> bool:
+    """Run both hub triangles with claim workers between legs."""
+    ok_a = await step_hub_base_eth_sol()
+    await step_cctp_claim()
+    await step_wormhole_claim(max_rounds=60)
+    await audit()
+    ok_b = await step_hub_sol_eth_base()
+    await step_cctp_claim()
+    await step_wormhole_claim(max_rounds=60)
+    await audit()
+    return ok_a and ok_b
+
+
+async def step_closed_loop_base(size: float = TEST_VNXAU) -> bool:
+    """Base USDT → arb → return to Base USDT when round-trip is economic."""
+    from src.treasury.manager import TreasuryManager
+
+    chains = load_chains()
+    token = load_tokens()["VNXAU"]
+    cfg = load_bot_config()
+    treasury = TreasuryManager(chains, token, cfg)
+    ex = ArbExecutor(chains, token, cfg)
+    _log(f"\n=== Closed loop from Base @ {size} VNXAU ===")
+    async with build_client() as client:
+        result = await treasury.best_closed_loop_from_origin(client, ex, "base", size)
+        if not result:
+            _log("  No economic closed loop from Base")
+            return False
+        _log(
+            f"  primary={result.primary_direction} return={result.return_direction} "
+            f"closed={result.closed} reason={result.reason}"
+        )
+        return result.closed
+
+
+async def step_cctp_sol_to_eth() -> bool:
+    amount = await _hub_usdc_amount()
+    if amount < PROBE_USDC:
+        _log(f"\n=== CCTP Sol→ETH — SKIP (Sol USDC < {PROBE_USDC}) ===")
+        return False
+    _log(f"\n=== CCTP Sol→ETH ${amount:.2f} ===")
+    bridge = CircleCctpBridge()
+    async with build_client() as client:
+        r = await bridge.bridge_usdc_sol_to_eth(client, amount)
+        _log(f"  {'OK' if r.success else 'FAIL'} src={r.source_tx} dst={r.dest_tx} err={r.error}")
+        if not r.success:
+            await step_cctp_claim()
+        return r.success or r.dest_tx is not None
+
+
+async def step_eth_usdc_to_base() -> bool:
+    """Complete SOL→ETH→BASE triangle: ETH USDC → swap USDT → Wormhole → Base."""
+    from scripts.rebalance_for_test import _balances
+
+    b = await _balances()
+    amount = min(HUB_USDC, b.get("eth_usdc", 0) * 0.95)
+    if amount < 1.0:
+        _log("\n=== ETH USDC → BASE — SKIP (ETH USDC < 1) ===")
+        return False
+    _log(f"\n=== ETH USDC → swap USDT → Wormhole BASE (${amount:.2f} USDC) ===")
+    async with build_client() as client:
+        r = await wormhole_eth_to_base_via_usdc(client, amount)
+        _log(
+            f"  {'OK' if r['success'] else 'PARTIAL/FAIL'} stage={r.get('stage', 'wormhole')} "
+            f"swap={r.get('swap_tx')} wh={getattr(r.get('wormhole'), 'dest_tx', None)} err={r.get('error')}"
+        )
+        if not r["success"]:
+            await step_wormhole_claim(max_rounds=60)
+        return r["success"] or bool(r.get("swap_tx"))
+
+
+async def step_cctp_eth_to_sol() -> bool:
+    from scripts.rebalance_for_test import _balances
+
+    b = await _balances()
+    amount = min(CCTP_USDC, b.get("eth_usdc", 0) * 0.95)
+    if amount < PROBE_USDC:
+        _log(f"\n=== CCTP ETH→Sol — SKIP (ETH USDC {b.get('eth_usdc', 0):.2f}) ===")
+        return False
+    _log(f"\n=== CCTP ETH→Sol ${amount:.2f} ===")
+    bridge = CircleCctpBridge()
+    async with build_client() as client:
+        r = await bridge.bridge_usdc_eth_to_sol(client, amount)
+        _log(f"  {'OK' if r.success else 'FAIL'} src={r.source_tx} dst={r.dest_tx} err={r.error}")
+        if not r.success:
+            await step_cctp_claim()
+        return r.success or r.dest_tx is not None
+
+
+async def run_full_matrix() -> int:
+    """
+    Full live validation: all VNXAU arb directions + CCTP (Sol↔ETH) + Wormhole preflight (Base→Sol/ETH).
+    VNX↔ETH settlement is exercised via solana_to_vnx / vnx_to_solana (CCTP legs).
+    """
+    os.environ["CCTP_RECONCILE_USDC"] = "0"
+    os.environ["ENABLE_VNX_ARB_ROUTES"] = "true"
+    os.environ["ENABLE_VNX_CCTP_ROUTES"] = "true"
+
+    _log("\n========== FULL CROSS-CHAIN MATRIX ==========")
+    if TX_LOG_PATH.exists():
+        TX_LOG_PATH.write_text("", encoding="utf-8")
+
+    await step_cctp_claim()
+    _log("\n=== Initial balance audit ===")
+    await audit()
+
+    _log("\n=== Rebalance ===")
+    rebal_ok = await step_rebalance(execute=True)
+    if not rebal_ok:
+        _log("WARN: rebalance incomplete — continuing with best-effort route order")
+    await audit()
+    await step_wormhole_claim()
+
+    from src.scanner.routes import ALL_DIRECTIONS
+    from scripts.rebalance_for_test import _balances, route_order_for_balances
+
+    cfg = load_bot_config()
+    b = await _balances()
+    vnxau_order = list(await route_order_for_balances(b))
+    for d in ALL_DIRECTIONS:
+        if d not in vnxau_order:
+            vnxau_order.append(d)
+    _log(f"\nVNXAU route order: {vnxau_order}")
+
+    results: dict[str, bool | str] = {}
+
+    for direction in vnxau_order:
+        _log(f"\n--- Pre-route rebalance ({direction}) ---")
+        await step_rebalance(execute=True)
+        await step_cctp_claim()
+        _log(f"\n--- VNXAU route: {direction} @ {TEST_VNXAU} VNXAU ---")
+        try:
+            results[direction] = await _force_exec(direction, TEST_VNXAU)
+        except Exception as exc:
+            _log(f"CRASH {direction}: {exc}")
+            results[direction] = False
+        await step_cctp_claim()
+        await audit()
+
+    hub_steps = (
+        ("eth_to_vnx", step_eth_to_vnx),
+        ("vnx_to_eth", step_vnx_to_eth),
+        ("wormhole_base_to_eth", step_wormhole_base_to_eth),
+        ("wormhole_eth_to_base", step_wormhole_eth_to_base),
+        ("base_usdc_to_vnx", step_base_usdc_to_vnx),
+        ("hub_base_eth_sol", step_hub_base_eth_sol),
+        ("hub_sol_eth_base", step_hub_sol_eth_base),
+        ("wormhole_base_to_sol_direct", step_wormhole_base_to_sol),
+    )
+    for name, fn in hub_steps:
+        _log(f"\n--- Hub route: {name} ---")
+        await step_cctp_claim()
+        await step_wormhole_claim(max_rounds=40)
+        try:
+            results[name] = await fn()
+        except Exception as exc:
+            _log(f"CRASH {name}: {exc}")
+            results[name] = False
+        await audit()
+
+    bridge_steps = (
+        ("cctp_sol_to_eth", step_cctp_sol_to_eth),
+        ("cctp_eth_to_sol", step_cctp_eth_to_sol),
+        ("wormhole_base_sol_eth", step_wormhole_usdt_check),
+        ("base_swaps", step_base_swaps),
+        ("sol_swaps", step_sol_swaps),
+    )
+    for name, fn in bridge_steps:
+        _log(f"\n--- Bridge/DEX probe: {name} ---")
+        await step_cctp_claim()
+        try:
+            results[name] = await fn()
+        except Exception as exc:
+            _log(f"CRASH {name}: {exc}")
+            results[name] = False
+        await audit()
+
+    # Sol-initiate wormhole reverse still requires SPL SDK
+    for label in (
+        "wormhole_sol_to_base_usdc",
+        "wormhole_eth_to_sol_usdt",
+    ):
+        results[label] = "N/A (Sol initiate — use CCTP for Sol↔ETH USDC)"
+
+    await step_cctp_claim()
+    await step_wormhole_claim()
+    _log("\n=== Final balance audit ===")
+    await audit()
+
+    _log("\n=== Full matrix summary ===")
+    for k, v in results.items():
+        if v == "N/A (Sol initiate — use CCTP for Sol↔ETH USDC)":
+            _log(f"  N/A     {k}")
+        else:
+            _log(f"  {'PASS' if v else 'FAIL'}  {k}")
+
+    if TX_LOG_PATH.exists():
+        _log(f"\n=== TX log ({TX_LOG_PATH}) ===")
+        for line in TX_LOG_PATH.read_text(encoding="utf-8").strip().splitlines():
+            row = json.loads(line)
+            url = row.get("url") or ""
+            _log(f"  {row.get('intent')} | {row.get('chain')} | {row.get('tx_hash')} {url}")
+
+    fails = sum(1 for v in results.values() if v is False)
+    return fails
+
+
+async def run_production() -> int:
+    """Full production validation: rebalance, claim CCTP, run all routes in capital-efficient order."""
+    os.environ["CCTP_RECONCILE_USDC"] = "0"
+    _log("\n========== PRODUCTION ROUTE TEST ==========")
+    if TX_LOG_PATH.exists():
+        TX_LOG_PATH.write_text("", encoding="utf-8")
+
+    await step_cctp_claim()
+    _log("\n=== Rebalance for test ===")
+    rebal_ok = await step_rebalance(execute=True)
+    if not rebal_ok:
+        _log("WARN: rebalance incomplete — some routes may fail")
+    await audit()
+
+    cfg = load_bot_config()
+    from scripts.rebalance_for_test import _balances, route_order_for_balances
+
+    b = await _balances()
+    base_order = await route_order_for_balances(b)
+    directions = [d for d in base_order if d in active_directions(cfg)]
+    _log(f"\nRoute order: {directions}")
+
+    results: dict[str, bool] = {}
+
+    for direction in directions:
+        _log(f"\n--- Pre-route rebalance ({direction}) ---")
+        await step_rebalance(execute=True)
+        await step_cctp_claim()
+        _log(f"\n--- Route: {direction} ---")
+        try:
+            results[direction] = await _force_exec(direction, TEST_VNXAU)
+        except Exception as exc:
+            _log(f"CRASH {direction}: {exc}")
+            results[direction] = False
+        await step_cctp_claim()
+        await audit()
+
+    for probe in ("base-swaps", "sol-swaps", "wormhole-usdt"):
+        _log(f"\n--- Probe: {probe} ---")
+        try:
+            results[probe] = await STEPS[probe]()
+        except Exception as exc:
+            _log(f"CRASH {probe}: {exc}")
+            results[probe] = False
+
+    await step_cctp_claim()
+
+    _log("\n=== Production summary ===")
+    for k, v in results.items():
+        _log(f"  {'PASS' if v else 'FAIL/SKIP'}  {k}")
+
+    if TX_LOG_PATH.exists():
+        _log(f"\n=== TX log ({TX_LOG_PATH}) ===")
+        for line in TX_LOG_PATH.read_text(encoding="utf-8").strip().splitlines():
+            row = json.loads(line)
+            url = row.get("url") or ""
+            _log(f"  {row.get('intent')} | {row.get('chain')} | {row.get('tx_hash')} {url}")
+
+    fails = sum(1 for v in results.values() if not v)
+    return fails
+
+
+async def step_production_readiness() -> bool:
+    from src.treasury.readiness import format_report, funding_report
+
+    rows, balances = await funding_report("production")
+    _log(format_report(rows, balances))
+    return all(r.ok for r in rows)
+
+
+async def step_platform_probe() -> bool:
+    """Platform buy/sell round-trip at VNX minimum (40 VNXAU)."""
+    cfg = load_bot_config()
+    size = TEST_VNXAU
+    _log(f"\n=== Platform probe buy/sell @ {size} VNXAU ===")
+    async with VnxClient() as vnx:
+        bal = await vnx.account_balance()
+        if vnx.usdc_balance(bal) < size * 1.35:
+            _log(f"SKIP: platform USDC {vnx.usdc_balance(bal):.2f} < {size * 1.35:.0f}")
+            return False
+        buy = await platform_buy_vnxau(cfg, size, vnx=vnx)
+        if not buy.success:
+            _log(f"FAIL buy: {buy.error}")
+            return False
+        log_platform_order("probe_platform_buy", buy.ordid, qty=buy.quantity)
+        sell = await platform_sell_vnxau(cfg, buy.quantity, vnx=vnx)
+        if not sell.success:
+            _log(f"FAIL sell: {sell.error}")
+            return False
+        log_platform_order("probe_platform_sell", sell.ordid, sold=sell.sold, currency=sell.sold_currency)
+        _log(f"OK buy ordid={buy.ordid} sell ordid={sell.ordid}")
+    return True
+
+
+async def step_simulate_all_routes() -> bool:
+    from src.scanner.routes import ALL_DIRECTIONS, active_directions
+    from src.treasury.loops import origin_for_direction
+
+    cfg = load_bot_config()
+    chains = load_chains()
+    token = load_tokens()["VNXAU"]
+    active = set(active_directions(cfg))
+    ok = True
+    _log(f"\n=== Simulate all VNXAU routes @ {TEST_VNXAU} VNXAU (quotes only) ===")
+    async with build_client() as client:
+        for direction in ALL_DIRECTIONS:
+            sim = await simulate_direction(client, chains, token, cfg, direction, TEST_VNXAU)
+            tag = "act" if direction in active else "off"
+            if sim.error:
+                _log(f"  FAIL [{tag}] {direction}: {sim.error}")
+                ok = False
+            else:
+                _log(
+                    f"  OK   [{tag}] {direction} net=${sim.net_profit_usd:+.2f} "
+                    f"stable_out=${sim.stable_out_usd:.2f}"
+                )
+    return ok
+
+
+async def step_verify_all() -> bool:
+    """Max verification: claims, readiness, bridge sims, DEX probes, route sims."""
+    _log("\n========== VERIFY ALL (production preflight) ==========")
+    results: dict[str, bool] = {}
+
+    results["cctp_claim"] = await step_cctp_claim()
+    results["wormhole_claim"] = await step_wormhole_claim(max_rounds=20)
+    await audit()
+
+    from src.treasury.readiness import format_report, funding_report
+
+    prod_rows, prod_bal = await funding_report("production")
+    _log(format_report(prod_rows, prod_bal))
+    test_rows, test_bal = await funding_report("route_test")
+    _log("\n=== Route-test minimum (31 VNXAU matrix) ===")
+    _log(format_report(test_rows, test_bal))
+
+    results["wormhole_preflight"] = await step_wormhole_preflight()
+    results["route_simulations"] = await step_simulate_all_routes()
+
+    from scripts.rebalance_for_test import _balances
+
+    b = await _balances()
+    base_usdc = b.get("base_usdc", 0)
+    base_vnxau = b.get("base_vnxau", 0)
+    base_wrapped = prod_bal.get("base_usdc_wrapped_eth", 0)
+    if base_wrapped >= 0.01:
+        _log(f"\n=== Base wrapped USDT {base_wrapped:.2f} — consolidating to canonical ===")
+        await step_consolidate_base_usdc()
+        b = await _balances()
+        base_usdc = b.get("base_usdc", 0)
+    if base_usdc >= PROBE_USDC or base_vnxau >= 0.5:
+        results["base_swaps"] = await step_base_swaps()
+    else:
+        _log(f"\nSKIP base-swaps (USDT {base_usdc:.2f}, VNXAU {base_vnxau:.2f})")
+        results["base_swaps"] = False
+
+    if b.get("sol_usdc", 0) >= PROBE_USDC:
+        results["sol_swaps"] = await step_sol_swaps()
+    else:
+        _log(f"\nSKIP sol-swaps (USDC {b.get('sol_usdc', 0):.2f} < {PROBE_USDC})")
+        results["sol_swaps"] = False
+
+    if b.get("platform_usdc", 0) >= TEST_VNXAU * 1.35:
+        results["platform_probe"] = await step_platform_probe()
+    else:
+        _log(f"\nSKIP platform probe (USDC {b.get('platform_usdc', 0):.2f})")
+        results["platform_probe"] = False
+
+    if b.get("eth_usdc", 0) >= HUB_USDC:
+        results["eth_to_vnx"] = await step_eth_to_vnx()
+    else:
+        _log(f"\nSKIP eth→vnx (ETH USDC {b.get('eth_usdc', 0):.2f} < VNX min {HUB_USDC:.0f})")
+        results["eth_to_vnx"] = False
+
+    if b.get("platform_usdc", 0) >= HUB_USDC:
+        results["vnx_to_eth"] = await step_vnx_to_eth()
+    else:
+        _log(f"\nSKIP vnx→eth (platform USDC {b.get('platform_usdc', 0):.2f} < {HUB_USDC})")
+        results["vnx_to_eth"] = False
+
+    if b.get("sol_usdc", 0) >= PROBE_USDC:
+        results["cctp_sol_eth"] = await step_cctp_sol_to_eth()
+        await step_cctp_claim()
+    else:
+        results["cctp_sol_eth"] = False
+
+    if b.get("eth_usdc", 0) >= PROBE_USDC:
+        results["cctp_eth_sol"] = await step_cctp_eth_to_sol()
+        await step_cctp_claim()
+    else:
+        results["cctp_eth_sol"] = False
+
+    await step_cctp_claim()
+    await step_wormhole_claim(max_rounds=10)
+    await audit()
+
+    _log("\n=== Verify-all summary ===")
+    for k, v in results.items():
+        _log(f"  {'PASS' if v else 'FAIL/SKIP'}  {k}")
+
+    critical = ("cctp_claim", "wormhole_claim", "wormhole_preflight", "route_simulations")
+    return all(results.get(k) for k in critical)
+
+
+async def step_profit_scan() -> None:
+    """Live round-trip profit matrix (simulation only, no execution)."""
+    from src.scanner.routes import ALL_DIRECTIONS, active_directions
+    from src.scanner.simulator import simulate_round_trip
+    from src.treasury.loops import origin_for_direction
+
+    cfg = load_bot_config()
+    chains = load_chains()
+    token = load_tokens()["VNXAU"]
+    active = set(active_directions(cfg))
+
+    _log("\n=== Profit scan (round-trip simulation) ===")
+    _log(f"min_profit=${cfg.min_profit_usd} active={sorted(active)}")
+
+    async with build_client() as client:
+        for size in (TEST_VNXAU, cfg.min_trade_vnxau):
+            _log(f"\n--- @ {size:.0f} VNXAU ---")
+            for direction in ALL_DIRECTIONS:
+                origin = origin_for_direction(direction)
+                rt = await simulate_round_trip(
+                    client, chains, token, cfg, direction, size, origin=origin
+                )
+                ret_p = rt.return_sim.net_profit_usd if rt.return_sim else 0.0
+                ret_dir = rt.return_direction or "-"
+                go = "YES" if rt.profitable else "no"
+                _log(
+                    f"  {direction:<18} act={'Y' if direction in active else 'N'} "
+                    f"pri=${rt.primary.net_profit_usd:+.2f} ret={ret_dir} ${ret_p:+.2f} "
+                    f"round=${rt.round_trip_profit_usd:+.2f} {go}"
+                )
+    return True
+
+
+STEPS = {
+    "audit": lambda: audit(),
+    "readiness": step_production_readiness,
+    "verify-all": step_verify_all,
+    "cctp-claim": step_cctp_claim,
+    "platform-buy": step_platform_buy,
+    "platform-sell": step_platform_sell,
+    "base-swaps": step_base_swaps,
+    "sol-swaps": step_sol_swaps,
+    "wormhole-usdt": step_wormhole_usdt_check,
+    "vnx-to-sol": lambda: _force_exec("vnx_to_solana", _ROUTE_SIZE),
+    "sol-to-vnx": lambda: _force_exec("solana_to_vnx", _ROUTE_SIZE),
+    "sol-to-base": lambda: _force_exec("solana_to_base", _ROUTE_SIZE),
+    "base-to-sol": lambda: _force_exec("base_to_solana", _ROUTE_SIZE),
+    "base-to-vnx": lambda: _force_exec("base_to_vnx", _ROUTE_SIZE),
+    "vnx-to-base": lambda: _force_exec("vnx_to_base", _ROUTE_SIZE),
+    "cctp-sol-eth": step_cctp_sol_to_eth,
+    "cctp-eth-sol": step_cctp_eth_to_sol,
+    "wormhole-claim": step_wormhole_claim,
+    "consolidate-base-usdc": step_consolidate_base_usdc,
+    "eth-to-vnx": step_eth_to_vnx,
+    "vnx-to-eth": step_vnx_to_eth,
+    "wormhole-base-eth": step_wormhole_base_to_eth,
+    "wormhole-eth-base": step_wormhole_eth_to_base,
+    "base-usdt-to-vnx": step_base_usdc_to_vnx,
+    "hub-base-eth-sol": step_hub_base_eth_sol,
+    "hub-sol-eth-base": step_hub_sol_eth_base,
+    "hub-cross-chain": step_hub_cross_chain,
+    "eth-usdc-to-base": step_eth_usdc_to_base,
+    "eth-usdt-to-sol": step_eth_usdt_to_sol,
+    "wormhole-base-sol": step_wormhole_base_to_sol,
+    "closed-loop-base": step_closed_loop_base,
+    "rebalance": lambda: step_rebalance(execute=True),
+    "production": run_production,
+    "scan": step_profit_scan,
+    "full-matrix": run_full_matrix,
+}
+
+
+async def run_all() -> int:
+    return await run_full_matrix()
+
+
+async def main() -> None:
+    global _ROUTE_SIZE
+    p = argparse.ArgumentParser()
+    p.add_argument("--step", default="production", choices=["all", *STEPS.keys()])
+    p.add_argument(
+        "--size",
+        type=float,
+        default=TEST_VNXAU,
+        help=f"VNXAU size for route force-exec steps (default {TEST_VNXAU})",
+    )
+    args = p.parse_args()
+    _ROUTE_SIZE = args.size
+    if args.step == "all":
+        rc = await run_full_matrix()
+        sys.exit(0 if rc == 0 else 1)
+    if args.step == "production":
+        rc = await run_production()
+        sys.exit(0 if rc == 0 else 1)
+    if args.step == "full-matrix":
+        rc = await run_full_matrix()
+        sys.exit(0 if rc == 0 else 1)
+    if args.step == "audit":
+        await audit()
+        return
+    ok = await STEPS[args.step]()
+    sys.exit(0 if ok else 1)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())

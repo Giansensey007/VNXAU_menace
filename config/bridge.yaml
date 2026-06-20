@@ -1,0 +1,43 @@
+# Cross-chain stable bridge: Wormhole Portal (Guardian-attested)
+# https://wormhole.com/docs/products/reference/contract-addresses/
+wormhole:
+  name: Wormhole Portal
+  url: https://portalbridge.com
+  base_chain_id: 30
+  solana_chain_id: 1
+  ethereum_chain_id: 2
+  base_token_bridge: "0x8d2de8d2f73F1F4cAB472AC9A881C9b123C79627"
+  ethereum_token_bridge: "0x3ee18B2214AFF97000D974cf647E7C347E8fa585"
+  solana_token_bridge: "wormDTUJ6AWPNvk59vGQbDvGJmqbDTdgWgAqcLBCgUb"
+  # Native Base USDC — DEX hub + Wormhole Base↔Sol/ETH outbound
+  base_usdc: "0x833589fCD6eDb6E08f4c7C32D4F71b54bda02913"
+  ethereum_usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+  ethereum_usdt: "0xdAC17F958D2ee523a2206206994597C13D831ec7"
+  solana_usdc: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  solana_usdt: "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+  fee_usd_estimate: 0.50
+  attestation_poll_sec: 15
+  attestation_timeout_sec: 900
+  claim_interval_sec: 30
+
+hub:
+  # Base and Solana both use USDC — no USDT normalization needed
+  accounting_stable: USDC
+  sol_usdc_to_usdt_via: none
+
+# Circle CCTP v2 — USDC Solana ↔ Ethereum (VNX platform settlement on ETH)
+# https://developers.circle.com/cctp
+cctp:
+  name: Circle CCTP
+  iris_api: https://iris-api.circle.com
+  solana_domain: 5
+  ethereum_domain: 0
+  solana_usdc: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+  ethereum_usdc: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+  ethereum_token_messenger: "0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d"
+  ethereum_message_transmitter: "0x81D40F21F12A8F0E3252Bccb954D722d4c464B64"
+  solana_token_messenger_minter: "CCTPV2vPZJS2u2BBsUoscuikbYjnpFmbFsvVuJdgUMQe"
+  solana_message_transmitter: "CCTPV2Sm4AdWt5296sk4P66VBZ7bEhcARwFaaS9YPbeC"
+  fast_finality_threshold: 1000
+  fee_usd_estimate: 1.50
+  attestation_timeout_sec: 1800

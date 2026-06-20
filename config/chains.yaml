@@ -1,0 +1,66 @@
+chains:
+  base:
+    name: Base
+    chain_id: 8453
+    kyber_slug: base
+    enabled: true
+    bridge_verified: true
+    quote_tier: aggregator
+    hub_stable: USDC
+    hub_token: "0x833589fCD6eDb6E08f4c7C32D4F71b54bda02913"
+    hub_decimals: 6
+    rpc_env: RPC_BASE
+    swap_router: "0x2626664c2603336E57B97c556bA78B20F96c3e51"
+    quoter_v2: "0x3d4e44EbC5BD0F32Bd4BdFaf3746D4534c0A59EB"
+    pools:
+      vnxau_usdc:
+        fee: 3000
+        token0_is_vnxau: true
+
+  solana:
+    name: Solana
+    chain_type: solana
+    chain_id: 0
+    kyber_slug: null
+    enabled: true
+    bridge_verified: true
+    quote_tier: jupiter
+    hub_stable: USDC
+    hub_token: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
+    hub_decimals: 6
+    rpc_env: RPC_SOLANA
+
+  vnx:
+    name: VNX Platform
+    chain_type: vnx
+    chain_id: 0
+    kyber_slug: null
+    enabled: true
+    bridge_verified: true
+    quote_tier: vnx
+    hub_stable: USDC
+    hub_token: USDC
+    hub_decimals: 6
+    rpc_env: VNX_API_PUBLIC_KEY
+
+  ethereum:
+    name: Ethereum
+    chain_id: 1
+    kyber_slug: ethereum
+    enabled: true
+    bridge_verified: true
+    quote_tier: aggregator
+    hub_stable: USDC
+    hub_token: "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"
+    hub_decimals: 6
+    rpc_env: RPC_ETHEREUM
+    swap_router: "0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45"
+    quoter_v2: "0x61FFECFE9BB63D7D8Bf820cDf982491D0Aa54881"
+    pools:
+      vnxau_usdc:
+        fee: 3000
+        token0_is_vnxau: true
+      usdt_usdc:
+        address: "0x3416cF6C708Da44DB2624D63ea0AAef7113527C6"
+        fee: 100
+        token0_is_usdt: true
