@@ -20,7 +20,7 @@ from src.vnx.collision import (
 
 logger = logging.getLogger(__name__)
 
-VNX_API_BASE = os.getenv("VNX_API_BASE", "https://api.vnx.li/api/v1").rstrip("/")
+VNX_API_BASE = os.getenv("VNX_API_BASE", "https://api.vnx.io/api/v1").rstrip("/")
 
 # Shared across VnxClient instances — GBP/VCHF/VNXAU bots share one VNX API key.
 _GLOBAL_LAST_NONCE = 0
