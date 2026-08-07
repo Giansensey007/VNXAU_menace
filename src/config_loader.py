@@ -175,7 +175,7 @@ def load_bot_config() -> BotConfig:
     min_trade = float(os.getenv("MIN_TRADE_VNXAU", raw.get("min_trade_vnxau", 200)))
     max_trade = float(os.getenv("MAX_TRADE_VNXAU", raw.get("max_trade_vnxau", 2000)))
     return BotConfig(
-        poll_interval_sec=int(os.getenv("POLL_INTERVAL_SEC", raw.get("poll_interval_sec", 60))),
+        poll_interval_sec=int(os.getenv("POLL_INTERVAL_SEC", raw.get("poll_interval_sec", 120))),
         min_profit_usd=float(os.getenv("MIN_PROFIT_USD", raw.get("min_profit_usd", 5))),
         min_trade_vnxau=min_trade,
         max_trade_vnxau=max_trade,
