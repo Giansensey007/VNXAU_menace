@@ -10,6 +10,7 @@ from src.config_loader import ChainConfig
 from src.quotes.addresses import checksum
 from src.quotes.kyber import (
     KYBER_BASE,
+    KYBER_CLIENT_ID,
     kyber_headers,
     parse_route_response,
     route_params,
@@ -18,6 +19,7 @@ from src.quotes.kyber import (
 from src.quotes.sync_throttle import retry_backoff_sec, sync_throttle
 
 logger = logging.getLogger(__name__)
+logger.debug("Kyber client id=%s", KYBER_CLIENT_ID)  # default vnxau-menace
 
 _MAX_KYBER_ATTEMPTS = int(os.getenv("API_RETRY_MAX", "6"))
 
