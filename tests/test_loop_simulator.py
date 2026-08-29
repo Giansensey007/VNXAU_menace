@@ -14,7 +14,7 @@ from src.scanner.routes import (
     LOOP2_INBOUND,
     LOOP3_CROSS,
     LoopSpec,
-    active_loops,
+    catalog_loops,
 )
 
 TOKEN = TokenConfig(
@@ -119,7 +119,7 @@ async def test_size_below_min_order():
 
 
 def _live_loops():
-    return active_loops(token=load_tokens()["VNXAU"])
+    return catalog_loops(load_tokens()["VNXAU"])
 
 
 def _px_book(sell: float, buy: float) -> tuple[dict[str, float], dict[str, float]]:
